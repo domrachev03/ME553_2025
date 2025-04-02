@@ -1,0 +1,533 @@
+#ifndef ME553_2022_SOLUTIONS_EXERCISE1_20254024_HPP_
+#define ME553_2022_SOLUTIONS_EXERCISE1_20254024_HPP_
+
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <sys/types.h>
+#include <tinyxml_rai/tinystr.h>
+#include <tinyxml_rai/tinyxml_rai.h>
+
+namespace dyn {
+
+namespace spatial {
+inline Eigen::Matrix<double, 3, 3> rpy2rot(const Eigen::Vector3d &rpy) {
+  Eigen::Matrix<double, 3, 3> rot;
+  double thX = rpy[0], thY = rpy[1], thZ = rpy[2];
+
+  Eigen::Matrix3d xRot, yRot, zRot;
+
+  xRot << 1, 0, 0, 0, cos(thX), -sin(thX), 0, sin(thX), cos(thX);
+
+  yRot << cos(thY), 0, sin(thY), 0, 1, 0, -sin(thY), 0, cos(thY);
+
+  zRot << cos(thZ), -sin(thZ), 0, sin(thZ), cos(thZ), 0, 0, 0, 1;
+
+  rot = xRot * yRot * zRot;
+  return rot;
+}
+
+inline Eigen::Matrix3d axisangle2rot(const Eigen::Vector3d &axis) {
+  Eigen::Matrix3d rot;
+  double theta = axis.norm();
+  Eigen::Vector3d n = axis.normalized();
+
+  return Eigen::AngleAxisd(theta, n).toRotationMatrix();
+}
+} // namespace spatial
+
+namespace structs {
+enum JointType {
+  FIXED = 0,
+  REVOLUTE = 1,
+  PRISMATIC = 2,
+  FREE = 3,
+};
+
+inline JointType getJointType(const std::string &type) {
+  if (type == "fixed") {
+    return FIXED;
+  } else if (type == "revolute") {
+    return REVOLUTE;
+  } else if (type == "prismatic") {
+    return PRISMATIC;
+  } else if (type == "free") {
+    return FREE;
+  } else {
+    throw std::runtime_error("Unknown joint type: " + type);
+  }
+}
+
+inline uint16_t getJointDof(JointType type) {
+  switch (type) {
+  case FIXED:
+    return 0;
+  case REVOLUTE:
+    return 1;
+  case PRISMATIC:
+    return 1;
+  case FREE:
+    return 6;
+  default:
+    throw std::runtime_error("Unknown joint type");
+  }
+}
+inline uint16_t getJointQposDof(JointType type) {
+  switch (type) {
+  case FIXED:
+    return 0;
+  case REVOLUTE:
+    return 1;
+  case PRISMATIC:
+    return 1;
+  case FREE:
+    return 7;
+  default:
+    throw std::runtime_error("Unknown joint type");
+  }
+}
+
+struct Model {
+  uint16_t nl;
+  uint16_t nj;
+  uint16_t nq;
+  // uint16_t nv;
+  std::vector<std::string> link_name;
+  // TODO: while I like this concept more, it would take some time to
+  // correctly order the joints during parsing the URDF
+  // Eigen::VectorX<std::uint16_t> link_parentid;
+
+  std::vector<std::string> jnt_name;
+  std::vector<uint16_t> jnt_parentid;
+  std::vector<uint16_t> jnt_childid;
+  std::vector<Eigen::Vector3d> jnt_rel_pos;
+  std::vector<Eigen::Matrix3d> jnt_rel_rot;
+  std::vector<JointType> jnt_type;
+  std::vector<Eigen::Vector3d> jnt_axis_local;
+  std::vector<Eigen::Vector2d> jnt_range;
+  std::vector<uint16_t> jnt_qaddr;
+  // Eigen::VectorX<uint16_t> jnt_dofadr;
+
+  std::vector<uint16_t> qpos_jnt_id;
+  // Eigen::VectorX<uint16_t> dof_jnt_id;
+};
+
+struct Data {
+  Eigen::VectorXd q;
+  // Eigen::VectorXd v;
+
+  std::vector<Eigen::Vector3d> link_pos;
+  std::vector<Eigen::Matrix3d> link_rot;
+  std::vector<Eigen::Vector3d> jnt_pos;
+  std::vector<Eigen::Matrix3d> jnt_rot;
+  // TODO: how to name it properly?
+  // This is axis along which the joint is moving in the world frame
+  // First three components are translation, last three are rotation
+  std::vector<Eigen::Vector<double, 6>> jnt_axis;
+};
+} // namespace structs
+
+namespace parse {
+
+inline structs::Model parseURDF(const std::string &urdf) {
+  structs::Model model;
+  raisim::TiXmlDocument doc;
+
+  doc.Parse(urdf.c_str());
+  raisim::TiXmlElement *root = doc.RootElement();
+  if (root == nullptr) {
+    throw std::runtime_error("Failed to parse URDF");
+  }
+
+  // Parse the number of bodies and joints
+  model.nl = 0;
+  model.nj = 0;
+  model.nq = 0;
+
+  // Count bodies and joints
+  for (raisim::TiXmlElement *child = root->FirstChildElement();
+       child != nullptr; child = child->NextSiblingElement()) {
+    if (strcmp(child->Value(), "link") == 0) {
+      model.nl++;
+    } else if (strcmp(child->Value(), "joint") == 0) {
+      model.nj++;
+      const char *type = child->Attribute("type");
+      if (!type) {
+        throw std::runtime_error("Joint type attribute is missing");
+      }
+      model.nq +=
+          structs::getJointQposDof(structs::getJointType(std::string(type)));
+    }
+  }
+
+  // Initialize vectors
+  model.link_name.resize(model.nl);
+
+  model.jnt_type.resize(model.nj);
+  model.jnt_range.resize(model.nj);
+  model.jnt_name.resize(model.nj);
+  model.jnt_parentid.resize(model.nj);
+  model.jnt_childid.resize(model.nj);
+  model.jnt_rel_pos.resize(model.nj);
+  model.jnt_rel_rot.resize(model.nj);
+  model.jnt_qaddr.resize(model.nj);
+  model.jnt_axis_local.resize(model.nj);
+
+  // FIXME: this is not the right way to do it
+  model.qpos_jnt_id.resize(model.nq);
+  // Fill in the data
+  uint16_t body_index = 0;
+  uint16_t joint_index = 0;
+  uint16_t jnt_qposdof_index = 0;
+  model.nq = 0;
+
+  // Temporary variables to store joint parent and child names
+  Eigen::VectorX<std::string> jnt_parentnames;
+  jnt_parentnames.resize(model.nj);
+  Eigen::VectorX<std::string> jnt_childnames;
+  jnt_childnames.resize(model.nj);
+
+  for (raisim::TiXmlElement *child = root->FirstChildElement();
+       child != nullptr; child = child->NextSiblingElement()) {
+    if (strcmp(child->Value(), "link") == 0) {
+      // Parse link data
+      const char *name = child->Attribute("name");
+      model.link_name[body_index] = name;
+      ++body_index;
+    } else if (strcmp(child->Value(), "joint") == 0) {
+      // Parsing name
+      const char *nameAttr = child->Attribute("name");
+      if (!nameAttr) {
+        throw std::runtime_error("Joint name attribute is missing");
+      }
+      std::string jointName = nameAttr;
+      model.jnt_name[joint_index] = jointName;
+      // Parsing type
+      const char *type = child->Attribute("type");
+      if (!type) {
+        throw std::runtime_error("Joint type attribute is missing");
+      }
+      structs::JointType jointType = structs::getJointType(std::string(type));
+      model.jnt_type[joint_index] = jointType;
+
+      // Processing the joint dimension
+      uint16_t jnt_qpos_dof = structs::getJointQposDof(jointType);
+      uint16_t jnt_dof = structs::getJointDof(jointType);
+      model.jnt_qaddr[joint_index] = jnt_qposdof_index;
+      for (uint16_t i = 0; i < jnt_dof; ++i) {
+        model.qpos_jnt_id[jnt_qposdof_index] = joint_index;
+        ++jnt_qposdof_index;
+      }
+
+      for (raisim::TiXmlElement *jnt_child = child->FirstChildElement();
+           jnt_child != nullptr; jnt_child = jnt_child->NextSiblingElement()) {
+        if (strcmp(jnt_child->Value(), "origin") == 0) {
+          char const *xyz = jnt_child->Attribute("xyz");
+
+          model.jnt_rel_pos[joint_index] =
+              Eigen::Vector3d::Zero(); // Initialize to zero
+          if (xyz) {
+            if (std::sscanf(xyz, "%lf %lf %lf",
+                            &model.jnt_rel_pos[joint_index][0],
+                            &model.jnt_rel_pos[joint_index][1],
+                            &model.jnt_rel_pos[joint_index][2]) != 3) {
+              throw std::runtime_error(
+                  "Invalid xyz attribute in URDF for joint " + jointName);
+            }
+          } else {
+            throw std::runtime_error(
+                "Origin xyz attribute is missing in URDF for joint " +
+                jointName);
+          }
+
+          char const *rpy = jnt_child->Attribute("rpy");
+
+          Eigen::Vector3d erpy = Eigen::Vector3d::Zero();
+          if (rpy) {
+            if (std::sscanf(rpy, "%lf %lf %lf", &erpy[0], &erpy[1], &erpy[2]) !=
+                3) {
+              throw std::runtime_error(
+                  "Invalid rpy attribute in URDF for joint " + jointName);
+            }
+          }
+          // model.jnt_rel_rot.row(joint_index) = Eigen::VectorXd::Zero(9);
+          model.jnt_rel_rot[joint_index] = spatial::rpy2rot(erpy);
+        }
+        if (strcmp(jnt_child->Value(), "parent") == 0) {
+          const char *parent_name = jnt_child->Attribute("link");
+          if (parent_name) {
+            jnt_parentnames[joint_index] = parent_name;
+          } else {
+            throw std::runtime_error(
+                "Parent link attribute is missing in URDF for joint " +
+                jointName);
+          }
+        }
+        if (strcmp(jnt_child->Value(), "child") == 0) {
+          const char *child_name = jnt_child->Attribute("link");
+          if (child_name) {
+            jnt_childnames[joint_index] = child_name;
+          } else {
+            throw std::runtime_error(
+                "Child link attribute is missing in URDF for joint " +
+                jointName);
+          }
+        }
+        if (strcmp(jnt_child->Value(), "limit") == 0) {
+          const char *lower = jnt_child->Attribute("lower");
+          const char *upper = jnt_child->Attribute("upper");
+
+          model.jnt_range[joint_index] =
+              Eigen::Vector2d::Zero(); // Initialize to zero
+          if (lower) {
+            if (std::sscanf(lower, "%lf", &model.jnt_range[joint_index][0]) !=
+                1) {
+              throw std::runtime_error(
+                  "Invalid limit attribute in URDF for joint " + jointName);
+            }
+          }
+          if (upper) {
+            if (std::sscanf(lower, "%lf", &model.jnt_range[joint_index][1]) !=
+                1) {
+              throw std::runtime_error(
+                  "Invalid limit attribute in URDF for joint " + jointName);
+            }
+          }
+        }
+        if (strcmp(jnt_child->Value(), "axis") == 0) {
+          const char *axis = jnt_child->Attribute("xyz");
+          model.jnt_axis_local[joint_index] = Eigen::Vector3d::UnitX();
+          if (axis) {
+            if (std::sscanf(axis, "%lf %lf %lf",
+                            &model.jnt_axis_local[joint_index][0],
+                            &model.jnt_axis_local[joint_index][1],
+                            &model.jnt_axis_local[joint_index][2]) != 3) {
+              throw std::runtime_error(
+                  "Invalid axis attribute in URDF for joint " + jointName);
+            }
+          }
+        }
+      }
+      ++joint_index;
+    }
+  }
+  model.nq = jnt_qposdof_index;
+
+  // Set parent-child relationships
+  for (uint16_t i = 0; i < model.nj; ++i) {
+    // Find the parent link index
+    bool found = false;
+    for (uint16_t j = 0; j < model.nl; ++j) {
+      if (model.link_name[j] == jnt_parentnames[i]) {
+        model.jnt_parentid[i] = j;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      throw std::runtime_error("Parent link not found for joint " +
+                               model.jnt_name[i]);
+    }
+    found = false;
+    for (uint16_t j = 0; j < model.nl; ++j) {
+      if (model.link_name[j] == jnt_childnames[i]) {
+        model.jnt_childid[i] = j;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      throw std::runtime_error("Child link not found for joint " +
+                               model.jnt_name[i]);
+    }
+  }
+
+  return model;
+}
+
+inline structs::Data makeData(const structs::Model &model) {
+  structs::Data data;
+  data.q.resize(model.nq);
+  // data.v.resize(model.nv);
+  data.link_pos.resize(model.nl);
+  data.link_rot.resize(model.nl);
+  data.jnt_pos.resize(model.nj);
+  data.jnt_rot.resize(model.nj);
+  data.jnt_axis.resize(model.nj);
+
+  return data;
+}
+
+inline structs::Model parseURDFfromFile(const std::string &urdf_path) {
+  // Read the URDF file from the given path
+  std::ifstream urdf_file(urdf_path);
+  std::string str;
+  std::string file_contents;
+  while (std::getline(urdf_file, str)) {
+    file_contents += str;
+    file_contents.push_back('\n');
+  }
+
+  return parseURDF(file_contents);
+}
+} // namespace parse
+
+namespace update {
+
+namespace kinematics {
+
+inline void computeForwardKinematics(const dyn::structs::Model &model,
+                                     dyn::structs::Data &data) {
+  // FIXME: this code works under assumption, that joints and links indices are
+  // in non-decreasing order in the tree (the ancestor is always smaller)
+  // Need to explicitly guarantee this in the URDF parsing code
+
+  data.link_pos[0] = Eigen::Vector3d::Zero();
+  data.link_rot[0] = Eigen::Matrix3d::Identity();
+  for (uint16_t jnt_id = 0; jnt_id < model.nj; ++jnt_id) {
+    // Get the parent frame
+    uint16_t parent_id = model.jnt_parentid[jnt_id];
+    uint16_t child_id = model.jnt_childid[jnt_id];
+    Eigen::Vector3d parent_pos = data.link_pos[parent_id];
+    Eigen::Matrix3d parent_rot = data.link_rot[parent_id];
+
+    // Compute the forward kinematics for each joint
+    const auto &jnt_pos = model.jnt_rel_pos[jnt_id];
+    const auto &joint_rot = model.jnt_rel_rot[jnt_id];
+
+    data.jnt_pos[jnt_id] = parent_pos + parent_rot * jnt_pos;
+    data.jnt_rot[jnt_id] = parent_rot * joint_rot;
+
+    // Handle joint effect
+    structs::JointType jnt_type = structs::JointType(model.jnt_type[jnt_id]);
+    data.jnt_axis[jnt_id] = Eigen::Vector<double, 6>::Zero();
+    if (jnt_type == structs::REVOLUTE) {
+      double q_i = data.q[model.jnt_qaddr[jnt_id]];
+      data.jnt_axis[jnt_id].tail(3) =
+          data.jnt_rot[jnt_id] * model.jnt_axis_local[jnt_id];
+      Eigen::Matrix3d jnt_rel_rot =
+          spatial::axisangle2rot(q_i * model.jnt_axis_local[jnt_id]);
+      data.jnt_rot[jnt_id] = data.jnt_rot[jnt_id] * jnt_rel_rot;
+    } else if (jnt_type == structs::PRISMATIC) {
+      data.jnt_axis[jnt_id].head(3) =
+          data.jnt_rot[jnt_id] * model.jnt_axis_local[jnt_id];
+      double q_i = data.q[model.jnt_qaddr[jnt_id]];
+      data.jnt_pos[jnt_id] +=
+          data.jnt_axis[jnt_id].head(3) * q_i; // Update position
+    } else if (jnt_type != structs::FIXED) {
+      // Print error that joint is unsupported
+      std::cerr << "Joint type not supported: " << jnt_type << std::endl;
+    }
+
+    // Set child body position and rotation
+    data.link_pos[child_id] = data.jnt_pos[jnt_id];
+    data.link_rot[child_id] = data.jnt_rot[jnt_id];
+  };
+}
+} // namespace kinematics
+
+inline void update(const dyn::structs::Model &model, dyn::structs::Data &data) {
+  // Update the kinematics of the model based on the current state
+  // This is a placeholder implementation
+  kinematics::computeForwardKinematics(model, data);
+}
+} // namespace update
+
+namespace utils {
+
+inline void printModelInfo(const dyn::structs::Model &model) {
+  std::cout << "Number of links: " << model.nl << std::endl;
+  std::cout << "Number of joints: " << model.nj << std::endl;
+  std::cout << "Number of qpos: " << model.nq << std::endl;
+  std::cout << "Link names: ";
+  // Print each link and its name on a separate line
+  for (uint16_t i = 0; i < model.nl; ++i) {
+    std::cout << "Link Name: " << model.link_name[i] << std::endl;
+  }
+  std::cout << std::endl;
+
+  // Print each joint's information on separate lines
+  for (uint16_t i = 0; i < model.nj; ++i) {
+    std::cout << "Joint Name: " << model.jnt_name[i] << std::endl;
+    std::cout << "  Type: " << model.jnt_type[i] << std::endl;
+    std::cout << "  Range: [" << model.jnt_range[i][0] << ", "
+              << model.jnt_range[i][1] << "]" << std::endl;
+    std::cout << "  Parent Link: " << model.link_name[model.jnt_parentid[i]]
+              << std::endl;
+    std::cout << "  Child Link: " << model.link_name[model.jnt_childid[i]]
+              << std::endl;
+    std::cout << "  Relative Position: [" << model.jnt_rel_pos[i][0] << ", "
+              << model.jnt_rel_pos[i][1] << ", " << model.jnt_rel_pos[i][2]
+              << "]" << std::endl;
+    std::cout << "  Relative Rotation:" << std::endl;
+    std::cout << "    [" << model.jnt_rel_rot[i](0, 0) << ", "
+              << model.jnt_rel_rot[i](0, 1) << ", "
+              << model.jnt_rel_rot[i](0, 2) << "]" << std::endl;
+    std::cout << "    [" << model.jnt_rel_rot[i](1, 0) << ", "
+              << model.jnt_rel_rot[i](1, 1) << ", "
+              << model.jnt_rel_rot[i](1, 2) << "]" << std::endl;
+    std::cout << "    [" << model.jnt_rel_rot[i](2, 0) << ", "
+              << model.jnt_rel_rot[i](2, 1) << ", "
+              << model.jnt_rel_rot[i](2, 2) << "]" << std::endl;
+    std::cout << "  Axis: [" << model.jnt_axis_local[i][0] << ", "
+              << model.jnt_axis_local[i][1] << ", "
+              << model.jnt_axis_local[i][2] << "]" << std::endl;
+    std::cout << "  qaddr: " << model.jnt_qaddr[i] << std::endl;
+    std::cout << "---------------------------------------" << std::endl;
+  }
+
+  // Print qpos joint IDs for each joint
+  std::cout << "Joint starting qpos IDs:" << std::endl;
+  for (uint16_t i = 0; i < model.nq; ++i) {
+    std::cout << "Joint " << model.jnt_name[i] << ": " << model.qpos_jnt_id[i]
+              << std::endl;
+  }
+}
+
+inline uint16_t jnt_name2id(const dyn::structs::Model &model,
+                            std::string jnt_name) {
+  for (uint16_t i = 0; i < model.nj; ++i) {
+    if (model.jnt_name[i] == jnt_name) {
+      return i;
+    }
+  }
+  throw std::runtime_error("Joint name not found: " + jnt_name);
+}
+
+inline uint16_t link_name2id(const dyn::structs::Model &model,
+                             std::string link_name) {
+  for (uint16_t i = 0; i < model.nl; ++i) {
+    if (model.link_name[i] == link_name) {
+      return i;
+    }
+  }
+  throw std::runtime_error("Link name not found: " + link_name);
+}
+} // namespace utils
+
+} // namespace dyn
+
+/// do not change the name of the method
+inline Eigen::Vector3d getEndEffectorPosition(const Eigen::VectorXd &gc) {
+  std::filesystem::path urdfPath =
+      std::filesystem::current_path().parent_path() / "resource" / "Panda" /
+      "panda.urdf";
+  dyn::structs::Model model = dyn::parse::parseURDFfromFile(urdfPath.string());
+  dyn::structs::Data data = dyn::parse::makeData(model);
+
+  // Check that the model is valid
+  // dyn::utils::printModelInfo(model);
+
+  // Updating the model
+  data.q = gc;
+  dyn::update::update(model, data);
+
+  // Get the end effector position
+  return data.jnt_pos[dyn::utils::jnt_name2id(
+      model, "panda_finger_joint3")]; /// replace this
+}
+
+#endif // ME553_2022_SOLUTIONS_EXERCISE1_20254024_HPP_

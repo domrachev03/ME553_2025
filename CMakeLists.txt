@@ -17,6 +17,3 @@ create_executable(rotation_example_euler_angles src/rotation_example_euler_angle
 create_executable(panda_example src/panda.cpp)
 
 # exam
-
-
-
