@@ -182,22 +182,14 @@ inline void printModelInfo(const dyn::structs::Model &model) {
 
 inline uint16_t jnt_name2id(const dyn::structs::Model &model,
                             std::string jnt_name) {
-  for (uint16_t i = 0; i < model.nj; ++i) {
-    if (model.jnt_name[i] == jnt_name) {
-      return i;
-    }
-  }
-  throw std::runtime_error("Joint name not found: " + jnt_name);
+  return std::find(model.jnt_name.begin(), model.jnt_name.end(), jnt_name) -
+         model.jnt_name.begin();
 }
 
 inline uint16_t link_name2id(const dyn::structs::Model &model,
                              std::string link_name) {
-  for (uint16_t i = 0; i < model.nl; ++i) {
-    if (model.link_name[i] == link_name) {
-      return i;
-    }
-  }
-  throw std::runtime_error("Link name not found: " + link_name);
+  return std::find(model.link_name.begin(), model.link_name.end(), link_name) -
+         model.link_name.begin();
 }
 
 template <typename T>
@@ -250,11 +242,11 @@ inline structs::Model parseURDF(const std::string &urdf) {
       structs::JointType jointType = structs::getJointType(type);
       model.nq += structs::getJointQposDof(jointType);
 
-      std::string jointName(child->Attribute("name"));
-      if (!jointName.size()) {
+      std::string joint_name(child->Attribute("name"));
+      if (!joint_name.size()) {
         throw std::runtime_error("Joint name attribute is missing");
       }
-      jnt_names.push_back(jointName);
+      jnt_names.push_back(joint_name);
       for (raisim::TiXmlElement *jnt_child = child->FirstChildElement();
            jnt_child != nullptr; jnt_child = jnt_child->NextSiblingElement()) {
         if (strcmp(jnt_child->Value(), "parent") == 0) {
@@ -268,7 +260,7 @@ inline structs::Model parseURDF(const std::string &urdf) {
       }
     }
   }
-  // Convert joint parent and child names to IDs
+  // Convert joint parent and child names to IDs in unordered setting
   std::vector<uint16_t> jnt_parentid;
   std::vector<uint16_t> jnt_childid;
   std::vector<uint16_t> link_parentid;
@@ -276,38 +268,34 @@ inline structs::Model parseURDF(const std::string &urdf) {
   jnt_parentid.resize(model.nj);
   jnt_childid.resize(model.nj);
   link_parentid.resize(model.nl);
-  std::fill(link_parentid.begin(), link_parentid.end(), (1 << 16) - 1);
+  std::fill(link_parentid.begin(), link_parentid.end(), UINT16_MAX);
   link_childid.resize(model.nl);
   uint16_t jnt_idx = 0;
   for (uint16_t i = 0; i < jnt_parent_names.size(); ++i) {
     std::string parent_name = jnt_parent_names[i];
-    if (parent_name.size()) {
-      jnt_parentid[jnt_idx] =
-          std::find(link_names.begin(), link_names.end(), parent_name) -
-          link_names.begin();
-      link_childid[jnt_parentid[jnt_idx]].push_back(jnt_idx);
-    }
+    jnt_parentid[jnt_idx] =
+        std::find(link_names.begin(), link_names.end(), parent_name) -
+        link_names.begin();
+    link_childid[jnt_parentid[jnt_idx]].push_back(jnt_idx);
     jnt_idx++;
   }
   jnt_idx = 0;
   for (uint16_t i = 0; i < jnt_child_names.size(); ++i) {
     std::string child_name = jnt_child_names[i];
-    if (child_name.size()) {
-      jnt_childid[jnt_idx] =
-          std::find(link_names.begin(), link_names.end(), child_name) -
-          link_names.begin();
-      link_parentid[jnt_childid[jnt_idx]] = jnt_idx;
-    }
+    jnt_childid[jnt_idx] =
+        std::find(link_names.begin(), link_names.end(), child_name) -
+        link_names.begin();
+    link_parentid[jnt_childid[jnt_idx]] = jnt_idx;
     jnt_idx++;
   }
 
   // Do depth-first search to find the id of link and joint
-  std::vector<uint16_t> link_id(model.nl);
-  std::vector<uint16_t> jnt_id(model.nj);
+  std::vector<uint16_t> link_id(model.nl, UINT16_MAX);
+  std::vector<uint16_t> jnt_id(model.nj, UINT16_MAX);
   std::stack<uint16_t> link_stack;
   // Put all link without parent into the stack
   for (uint16_t i = 0; i < model.nl; ++i) {
-    if (link_parentid[i] == (1 << 16) - 1) {
+    if (link_parentid[i] == UINT16_MAX) {
       link_stack.push(i);
     }
   }
@@ -323,7 +311,7 @@ inline structs::Model parseURDF(const std::string &urdf) {
 
     // Assign the index to the parent joint, if it has a parent
     uint16_t parent_jnt_idx = link_parentid[link_idx];
-    if (parent_jnt_idx != (1 << 16) - 1) {
+    if (parent_jnt_idx != UINT16_MAX) {
       jnt_id[parent_jnt_idx] = glob_jnt_idx;
       glob_jnt_idx++;
     }
@@ -333,13 +321,30 @@ inline structs::Model parseURDF(const std::string &urdf) {
       link_stack.push(jnt_childid[link_childid[link_idx][j]]);
     }
   }
-  // Reorder the link and joint names
+  // Reorder the link and joint names and their parent-child relationships
   utils::reorder(link_names, link_id);
   utils::reorder(jnt_names, jnt_id);
-  utils::reorder(jnt_parentid, jnt_id);
-  utils::reorder(jnt_childid, jnt_id);
-  utils::reorder(link_parentid, jnt_id);
+  utils::reorder(jnt_parent_names, jnt_id);
+  utils::reorder(jnt_child_names, jnt_id);
 
+  // Get new indices for the parent and child joints
+  jnt_idx = 0;
+  for (uint16_t i = 0; i < jnt_parent_names.size(); ++i) {
+    std::string parent_name = jnt_parent_names[i];
+    jnt_parentid[jnt_idx] =
+        std::find(link_names.begin(), link_names.end(), parent_name) -
+        link_names.begin();
+    jnt_idx++;
+  }
+  jnt_idx = 0;
+  for (uint16_t i = 0; i < jnt_child_names.size(); ++i) {
+    std::string child_name = jnt_child_names[i];
+    jnt_childid[jnt_idx] =
+        std::find(link_names.begin(), link_names.end(), child_name) -
+        link_names.begin();
+    link_parentid[jnt_childid[jnt_idx]] = jnt_idx;
+    jnt_idx++;
+  }
   // Write the reordered names to the model
   model.link_name = link_names;
   model.jnt_name = jnt_names;
@@ -368,14 +373,12 @@ inline structs::Model parseURDF(const std::string &urdf) {
       // ...
     } else if (strcmp(child->Value(), "joint") == 0) {
       // Parsing name
-      std::string jointName(child->Attribute("name"));
-      if (!jointName.size()) {
+      std::string joint_name(child->Attribute("name"));
+      if (!joint_name.size()) {
         throw std::runtime_error("Joint name attribute is missing");
       }
       // Getting index of the joint
-      uint16_t joint_index =
-          std::find(jnt_names.begin(), jnt_names.end(), jointName) -
-          jnt_names.begin();
+      uint16_t joint_index = utils::jnt_name2id(model, joint_name);
 
       // Parsing type
       const char *type = child->Attribute("type");
@@ -407,12 +410,12 @@ inline structs::Model parseURDF(const std::string &urdf) {
                             &model.jnt_rel_pos[joint_index][1],
                             &model.jnt_rel_pos[joint_index][2]) != 3) {
               throw std::runtime_error(
-                  "Invalid xyz attribute in URDF for joint " + jointName);
+                  "Invalid xyz attribute in URDF for joint " + joint_name);
             }
           } else {
             throw std::runtime_error(
                 "Origin xyz attribute is missing in URDF for joint " +
-                jointName);
+                joint_name);
           }
 
           char const *rpy = jnt_child->Attribute("rpy");
@@ -422,7 +425,7 @@ inline structs::Model parseURDF(const std::string &urdf) {
             if (std::sscanf(rpy, "%lf %lf %lf", &erpy[0], &erpy[1], &erpy[2]) !=
                 3) {
               throw std::runtime_error(
-                  "Invalid rpy attribute in URDF for joint " + jointName);
+                  "Invalid rpy attribute in URDF for joint " + joint_name);
             }
           }
           // model.jnt_rel_rot.row(joint_index) = Eigen::VectorXd::Zero(9);
@@ -435,7 +438,7 @@ inline structs::Model parseURDF(const std::string &urdf) {
         //   } else {
         //     throw std::runtime_error(
         //         "Parent link attribute is missing in URDF for joint " +
-        //         jointName);
+        //         joint_name);
         //   }
         // }
         // if (strcmp(jnt_child->Value(), "child") == 0) {
@@ -445,7 +448,7 @@ inline structs::Model parseURDF(const std::string &urdf) {
         //   } else {
         //     throw std::runtime_error(
         //         "Child link attribute is missing in URDF for joint " +
-        //         jointName);
+        //         joint_name);
         //   }
         // }
         if (strcmp(jnt_child->Value(), "limit") == 0) {
@@ -458,14 +461,14 @@ inline structs::Model parseURDF(const std::string &urdf) {
             if (std::sscanf(lower, "%lf", &model.jnt_range[joint_index][0]) !=
                 1) {
               throw std::runtime_error(
-                  "Invalid limit attribute in URDF for joint " + jointName);
+                  "Invalid limit attribute in URDF for joint " + joint_name);
             }
           }
           if (upper) {
             if (std::sscanf(lower, "%lf", &model.jnt_range[joint_index][1]) !=
                 1) {
               throw std::runtime_error(
-                  "Invalid limit attribute in URDF for joint " + jointName);
+                  "Invalid limit attribute in URDF for joint " + joint_name);
             }
           }
         }
@@ -478,7 +481,7 @@ inline structs::Model parseURDF(const std::string &urdf) {
                             &model.jnt_axis_local[joint_index][1],
                             &model.jnt_axis_local[joint_index][2]) != 3) {
               throw std::runtime_error(
-                  "Invalid axis attribute in URDF for joint " + jointName);
+                  "Invalid axis attribute in URDF for joint " + joint_name);
             }
           }
         }
@@ -553,10 +556,6 @@ namespace kinematics {
 
 inline void computeForwardKinematics(const dyn::structs::Model &model,
                                      dyn::structs::Data &data) {
-  // FIXME: this code works under assumption, that joints and links indices are
-  // in non-decreasing order in the tree (the ancestor is always smaller)
-  // Need to explicitly guarantee this in the URDF parsing code
-
   data.link_pos[0] = Eigen::Vector3d::Zero();
   data.link_rot[0] = Eigen::Matrix3d::Identity();
   for (uint16_t jnt_id = 0; jnt_id < model.nj; ++jnt_id) {
