@@ -123,8 +123,12 @@ struct Data {
   std::vector<Eigen::Vector3d> link_avel;
   std::vector<Eigen::MatrixXd> link_Jpos;
   std::vector<Eigen::MatrixXd> link_Jrot;
+  std::vector<Eigen::MatrixXd> jnt_Jpos;
+  std::vector<Eigen::MatrixXd> jnt_Jrot;
   std::vector<Eigen::Vector3d> jnt_pos;
   std::vector<Eigen::Matrix3d> jnt_rot;
+  std::vector<Eigen::Vector3d> jnt_lvel;
+  std::vector<Eigen::Vector3d> jnt_avel;
   // This is axis along which the joint is moving in the world frame
   // First three components are translation, last three are rotation
   std::vector<Eigen::Vector3d> jnt_axis_pos;
@@ -139,6 +143,8 @@ inline structs::Data makeData(const structs::Model &model) {
   data.link_rot.resize(model.nl);
   data.jnt_pos.resize(model.nj);
   data.jnt_rot.resize(model.nj);
+  data.jnt_lvel.resize(model.nl);
+  data.jnt_avel.resize(model.nl);
   data.jnt_axis_pos.resize(model.nj);
   data.jnt_axis_rot.resize(model.nj);
   data.link_lvel.resize(model.nl);
@@ -150,6 +156,14 @@ inline structs::Data makeData(const structs::Model &model) {
   data.link_Jrot.resize(model.nl);
   for (uint16_t i = 0; i < model.nl; ++i) {
     data.link_Jrot[i].resize(3, model.nv);
+  }
+  data.jnt_Jpos.resize(model.nj);
+  for (uint16_t i = 0; i < model.nj; ++i) {
+    data.jnt_Jpos[i].resize(3, model.nv);
+  }
+  data.jnt_Jrot.resize(model.nj);
+  for (uint16_t i = 0; i < model.nj; ++i) {
+    data.jnt_Jrot[i].resize(3, model.nv);
   }
 
   return data;
@@ -629,22 +643,59 @@ inline Eigen::MatrixXd computeAngularJacobian(const dyn::structs::Model &model,
   return Jvel;
 }
 
-// inline Eigen::MatrixXd computeJacobian(const dyn::structs::Model &model,
-//                                        dyn::structs::Data &data,
-//                                        const uint16_t &link_id,
-//                                        const Eigen::Vector3d &point) {
-//   Eigen::MatrixXd J(6, model.nv);
-//   J.block(0, 0, 3, model.nv) =
-//       computeLinearJacobian(model, data, link_id, point);
-//   J.block(3, 0, 3, model.nv) = computeAngularJacobian(model, data, link_id);
-//   return J;
-// }
+inline Eigen::MatrixXd computeLinearJacobian(const dyn::structs::Model &model,
+                                             const dyn::structs::Data &data,
+                                             const uint16_t &jnt_id) {
+  return computeLinearJacobian(model, data, jnt_id, true,
+                               Eigen::Vector3d::Zero());
+}
+
+inline Eigen::MatrixXd computeAngularJacobian(const dyn::structs::Model &model,
+                                              const dyn::structs::Data &data,
+                                              const uint16_t &jnt_id) {
+  return computeAngularJacobian(model, data, jnt_id, true);
+}
+
+inline Eigen::MatrixXd computeJacobian(const dyn::structs::Model &model,
+                                       dyn::structs::Data &data,
+                                       const uint16_t &obj_id,
+                                       const bool &is_jnt,
+                                       const Eigen::Vector3d &point) {
+  Eigen::MatrixXd J(6, model.nv);
+  J.block(0, 0, 3, model.nv) =
+      computeLinearJacobian(model, data, obj_id, is_jnt, point);
+  J.block(3, 0, 3, model.nv) =
+      computeAngularJacobian(model, data, obj_id, is_jnt);
+  return J;
+}
+
+inline void computeJandVel(const dyn::structs::Model &model,
+                           dyn::structs::Data &data) {
+  for (uint16_t i = 0; i < model.nl; ++i) {
+    data.link_Jpos[i] =
+        computeLinearJacobian(model, data, i, false, Eigen::Vector3d::Zero());
+    data.link_lvel[i] = data.link_Jpos[i] * data.v;
+
+    data.link_Jrot[i] = computeAngularJacobian(model, data, i, false);
+    data.link_avel[i] = data.link_Jrot[i] * data.v;
+  }
+
+  for (uint16_t i = 0; i < model.nj; ++i) {
+    data.jnt_Jpos[i] = computeLinearJacobian(model, data, i);
+    data.jnt_lvel[i] = data.jnt_Jpos[i] * data.v;
+
+    data.jnt_Jrot[i] = computeAngularJacobian(model, data, i);
+    data.jnt_avel[i] = data.jnt_Jrot[i] * data.v;
+  }
+}
+
 } // namespace kinematics
 
 inline void update(const dyn::structs::Model &model, dyn::structs::Data &data) {
   // Update the kinematics of the model based on the current state
   // This is a placeholder implementation
   kinematics::computeForwardKinematics(model, data);
+  kinematics::computeJandVel(model, data);
 }
 } // namespace algorithms
 } // namespace dyn

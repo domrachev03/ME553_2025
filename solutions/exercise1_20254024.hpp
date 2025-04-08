@@ -23,6 +23,7 @@ inline Eigen::Vector3d getEndEffectorPosition(const Eigen::VectorXd &gc) {
 
   // Updating the model
   data.q = gc;
+  data.v = Eigen::VectorXd::Zero(model.nv); // Assuming zero velocity
   dyn::algorithms::update(model, data);
 
   // Get the end effector position
