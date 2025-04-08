@@ -3,6 +3,7 @@
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
+#include <arm_neon.h>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -130,6 +131,89 @@ struct Data {
 };
 } // namespace structs
 
+namespace utils {
+
+inline void printModelInfo(const dyn::structs::Model &model) {
+  std::cout << "Number of links: " << model.nl << std::endl;
+  std::cout << "Number of joints: " << model.nj << std::endl;
+  std::cout << "Number of qpos: " << model.nq << std::endl;
+  std::cout << "Link names: ";
+  // Print each link and its name on a separate line
+  for (uint16_t i = 0; i < model.nl; ++i) {
+    std::cout << "Link Name: " << model.link_name[i] << std::endl;
+  }
+  std::cout << std::endl;
+
+  // Print each joint's information on separate lines
+  for (uint16_t i = 0; i < model.nj; ++i) {
+    std::cout << "Joint Name: " << model.jnt_name[i] << std::endl;
+    std::cout << "  Type: " << model.jnt_type[i] << std::endl;
+    std::cout << "  Range: [" << model.jnt_range[i][0] << ", "
+              << model.jnt_range[i][1] << "]" << std::endl;
+    std::cout << "  Parent Link: " << model.link_name[model.jnt_parentid[i]]
+              << std::endl;
+    std::cout << "  Child Link: " << model.link_name[model.jnt_childid[i]]
+              << std::endl;
+    std::cout << "  Relative Position: [" << model.jnt_rel_pos[i][0] << ", "
+              << model.jnt_rel_pos[i][1] << ", " << model.jnt_rel_pos[i][2]
+              << "]" << std::endl;
+    std::cout << "  Relative Rotation:" << std::endl;
+    std::cout << "    [" << model.jnt_rel_rot[i](0, 0) << ", "
+              << model.jnt_rel_rot[i](0, 1) << ", "
+              << model.jnt_rel_rot[i](0, 2) << "]" << std::endl;
+    std::cout << "    [" << model.jnt_rel_rot[i](1, 0) << ", "
+              << model.jnt_rel_rot[i](1, 1) << ", "
+              << model.jnt_rel_rot[i](1, 2) << "]" << std::endl;
+    std::cout << "    [" << model.jnt_rel_rot[i](2, 0) << ", "
+              << model.jnt_rel_rot[i](2, 1) << ", "
+              << model.jnt_rel_rot[i](2, 2) << "]" << std::endl;
+    std::cout << "  Axis: [" << model.jnt_axis_local[i][0] << ", "
+              << model.jnt_axis_local[i][1] << ", "
+              << model.jnt_axis_local[i][2] << "]" << std::endl;
+    std::cout << "  qaddr: " << model.jnt_qaddr[i] << std::endl;
+    std::cout << "---------------------------------------" << std::endl;
+  }
+
+  // Print qpos joint IDs for each joint
+  std::cout << "Joint starting qpos IDs:" << std::endl;
+  for (uint16_t i = 0; i < model.nq; ++i) {
+    std::cout << "Joint " << model.jnt_name[i] << ": " << model.qpos_jnt_id[i]
+              << std::endl;
+  }
+}
+
+inline uint16_t jnt_name2id(const dyn::structs::Model &model,
+                            std::string jnt_name) {
+  for (uint16_t i = 0; i < model.nj; ++i) {
+    if (model.jnt_name[i] == jnt_name) {
+      return i;
+    }
+  }
+  throw std::runtime_error("Joint name not found: " + jnt_name);
+}
+
+inline uint16_t link_name2id(const dyn::structs::Model &model,
+                             std::string link_name) {
+  for (uint16_t i = 0; i < model.nl; ++i) {
+    if (model.link_name[i] == link_name) {
+      return i;
+    }
+  }
+  throw std::runtime_error("Link name not found: " + link_name);
+}
+
+template <typename T>
+inline void reorder(std::vector<T> &vec, const std::vector<uint16_t> &order) {
+  for (int s = 1, d; s < order.size(); ++s) {
+    for (d = order[s]; d < s; d = order[d])
+      ;
+    if (d == s)
+      while (d = order[d], d != s)
+        swap(vec[s], vec[d]);
+  }
+}
+} // namespace utils
+
 namespace parse {
 
 inline structs::Model parseURDF(const std::string &urdf) {
@@ -147,28 +231,122 @@ inline structs::Model parseURDF(const std::string &urdf) {
   model.nj = 0;
   model.nq = 0;
 
-  // Count bodies and joints
+  std::vector<std::string> link_names;
+  std::vector<std::string> jnt_names;
+  std::vector<std::string> jnt_parent_names;
+  std::vector<std::string> jnt_child_names;
+  // Count bodies and joints, and store their names and parent-child
+  // relationships
   for (raisim::TiXmlElement *child = root->FirstChildElement();
        child != nullptr; child = child->NextSiblingElement()) {
     if (strcmp(child->Value(), "link") == 0) {
       model.nl++;
+      std::string name(child->Attribute("name"));
+      link_names.push_back(name);
     } else if (strcmp(child->Value(), "joint") == 0) {
       model.nj++;
-      const char *type = child->Attribute("type");
-      if (!type) {
+      std::string type(child->Attribute("type"));
+      if (!type.size()) {
         throw std::runtime_error("Joint type attribute is missing");
       }
-      model.nq +=
-          structs::getJointQposDof(structs::getJointType(std::string(type)));
+      structs::JointType jointType = structs::getJointType(type);
+      model.nq += structs::getJointQposDof(jointType);
+
+      std::string jointName(child->Attribute("name"));
+      if (!jointName.size()) {
+        throw std::runtime_error("Joint name attribute is missing");
+      }
+      jnt_names.push_back(jointName);
+      for (raisim::TiXmlElement *jnt_child = child->FirstChildElement();
+           jnt_child != nullptr; jnt_child = jnt_child->NextSiblingElement()) {
+        if (strcmp(jnt_child->Value(), "parent") == 0) {
+          std::cout << "Parent: " << jnt_child->Attribute("link") << std::endl;
+          std::string parent_name(jnt_child->Attribute("link"));
+          jnt_parent_names.push_back(parent_name);
+        }
+        if (strcmp(jnt_child->Value(), "child") == 0) {
+          std::cout << "Child: " << jnt_child->Attribute("link") << std::endl;
+          std::string child_name(jnt_child->Attribute("link"));
+          jnt_child_names.push_back(child_name);
+        }
+      }
     }
   }
+  // Convert joint parent and child names to IDs
+  std::vector<uint16_t> jnt_parentid;
+  std::vector<uint16_t> jnt_childid;
+  std::vector<uint16_t> link_parentid;
+  std::vector<std::vector<uint16_t>> link_childid;
+  jnt_parentid.resize(model.nj);
+  jnt_childid.resize(model.nj);
+  link_parentid.resize(model.nl);
+  std::fill(link_parentid.begin(), link_parentid.end(), (1 << 16) - 1);
+  link_childid.resize(model.nl);
+  uint16_t jnt_idx = 0;
+  for (uint16_t i = 0; i < jnt_parent_names.size(); ++i) {
+    std::string parent_name = jnt_parent_names[i];
+    if (parent_name.size()) {
+      jnt_parentid[jnt_idx] =
+          std::find(link_names.begin(), link_names.end(), parent_name) -
+          link_names.begin();
+      link_childid[jnt_parentid[jnt_idx]].push_back(jnt_idx);
+    }
+    jnt_idx++;
+  }
+  jnt_idx = 0;
+  for (uint16_t i = 0; i < jnt_child_names.size(); ++i) {
+    std::string child_name = jnt_child_names[i];
+    if (child_name.size()) {
+      jnt_childid[jnt_idx] =
+          std::find(link_names.begin(), link_names.end(), child_name) -
+          link_names.begin();
+      link_parentid[jnt_childid[jnt_idx]] = jnt_idx;
+    }
+    jnt_idx++;
+  }
+
+  // Do depth-first search to find the id of link and joint
+  std::vector<uint16_t> link_id(model.nl);
+  std::vector<uint16_t> jnt_id(model.nj);
+  std::stack<uint16_t> link_stack;
+  // Put all link without parent into the stack
+  for (uint16_t i = 0; i < model.nl; ++i) {
+    if (link_parentid[i] == (1 << 16) - 1) {
+      link_stack.push(i);
+    }
+  }
+  uint16_t glob_link_idx = 0;
+  uint16_t glob_jnt_idx = 0;
+  // Continue until all links are processed
+  while (!link_stack.empty()) {
+    uint16_t link_idx = link_stack.top();
+    link_stack.pop();
+    // Assign the index to the link
+    link_id[link_idx] = glob_link_idx;
+    glob_link_idx++;
+
+    // Assign the index to the parent joint, if it has a parent
+    uint16_t parent_jnt_idx = link_parentid[link_idx];
+    if (parent_jnt_idx != (1 << 16) - 1) {
+      jnt_id[parent_jnt_idx] = glob_jnt_idx;
+      glob_jnt_idx++;
+    }
+
+    // Push all child joints into the stack
+    for (uint16_t j = 0; j < link_childid[link_idx].size(); ++j) {
+      link_stack.push(jnt_childid[link_childid[link_idx][j]]);
+    }
+  }
+  // Reorder the link and joint names
+  utils::reorder(link_names, link_id);
+  utils::reorder(jnt_names, jnt_id);
+
+  model.link_name = link_names;
+  model.jnt_name = jnt_names;
 
   // Initialize vectors
-  model.link_name.resize(model.nl);
-
   model.jnt_type.resize(model.nj);
   model.jnt_range.resize(model.nj);
-  model.jnt_name.resize(model.nj);
   model.jnt_parentid.resize(model.nj);
   model.jnt_childid.resize(model.nj);
   model.jnt_rel_pos.resize(model.nj);
@@ -179,10 +357,7 @@ inline structs::Model parseURDF(const std::string &urdf) {
   // FIXME: this is not the right way to do it
   model.qpos_jnt_id.resize(model.nq);
   // Fill in the data
-  uint16_t body_index = 0;
-  uint16_t joint_index = 0;
   uint16_t jnt_qposdof_index = 0;
-  model.nq = 0;
 
   // Temporary variables to store joint parent and child names
   Eigen::VectorX<std::string> jnt_parentnames;
@@ -193,18 +368,18 @@ inline structs::Model parseURDF(const std::string &urdf) {
   for (raisim::TiXmlElement *child = root->FirstChildElement();
        child != nullptr; child = child->NextSiblingElement()) {
     if (strcmp(child->Value(), "link") == 0) {
-      // Parse link data
-      const char *name = child->Attribute("name");
-      model.link_name[body_index] = name;
-      ++body_index;
+      // ...
     } else if (strcmp(child->Value(), "joint") == 0) {
       // Parsing name
-      const char *nameAttr = child->Attribute("name");
-      if (!nameAttr) {
+      std::string jointName(child->Attribute("name"));
+      if (!jointName.size()) {
         throw std::runtime_error("Joint name attribute is missing");
       }
-      std::string jointName = nameAttr;
-      model.jnt_name[joint_index] = jointName;
+      // Getting index of the joint
+      uint16_t joint_index =
+          std::find(jnt_names.begin(), jnt_names.end(), jointName) -
+          jnt_names.begin();
+
       // Parsing type
       const char *type = child->Attribute("type");
       if (!type) {
@@ -375,7 +550,7 @@ inline structs::Model parseURDFfromFile(const std::string &urdf_path) {
 }
 } // namespace parse
 
-namespace update {
+namespace algorithms {
 
 namespace kinematics {
 
@@ -434,80 +609,7 @@ inline void update(const dyn::structs::Model &model, dyn::structs::Data &data) {
   // This is a placeholder implementation
   kinematics::computeForwardKinematics(model, data);
 }
-} // namespace update
-
-namespace utils {
-
-inline void printModelInfo(const dyn::structs::Model &model) {
-  std::cout << "Number of links: " << model.nl << std::endl;
-  std::cout << "Number of joints: " << model.nj << std::endl;
-  std::cout << "Number of qpos: " << model.nq << std::endl;
-  std::cout << "Link names: ";
-  // Print each link and its name on a separate line
-  for (uint16_t i = 0; i < model.nl; ++i) {
-    std::cout << "Link Name: " << model.link_name[i] << std::endl;
-  }
-  std::cout << std::endl;
-
-  // Print each joint's information on separate lines
-  for (uint16_t i = 0; i < model.nj; ++i) {
-    std::cout << "Joint Name: " << model.jnt_name[i] << std::endl;
-    std::cout << "  Type: " << model.jnt_type[i] << std::endl;
-    std::cout << "  Range: [" << model.jnt_range[i][0] << ", "
-              << model.jnt_range[i][1] << "]" << std::endl;
-    std::cout << "  Parent Link: " << model.link_name[model.jnt_parentid[i]]
-              << std::endl;
-    std::cout << "  Child Link: " << model.link_name[model.jnt_childid[i]]
-              << std::endl;
-    std::cout << "  Relative Position: [" << model.jnt_rel_pos[i][0] << ", "
-              << model.jnt_rel_pos[i][1] << ", " << model.jnt_rel_pos[i][2]
-              << "]" << std::endl;
-    std::cout << "  Relative Rotation:" << std::endl;
-    std::cout << "    [" << model.jnt_rel_rot[i](0, 0) << ", "
-              << model.jnt_rel_rot[i](0, 1) << ", "
-              << model.jnt_rel_rot[i](0, 2) << "]" << std::endl;
-    std::cout << "    [" << model.jnt_rel_rot[i](1, 0) << ", "
-              << model.jnt_rel_rot[i](1, 1) << ", "
-              << model.jnt_rel_rot[i](1, 2) << "]" << std::endl;
-    std::cout << "    [" << model.jnt_rel_rot[i](2, 0) << ", "
-              << model.jnt_rel_rot[i](2, 1) << ", "
-              << model.jnt_rel_rot[i](2, 2) << "]" << std::endl;
-    std::cout << "  Axis: [" << model.jnt_axis_local[i][0] << ", "
-              << model.jnt_axis_local[i][1] << ", "
-              << model.jnt_axis_local[i][2] << "]" << std::endl;
-    std::cout << "  qaddr: " << model.jnt_qaddr[i] << std::endl;
-    std::cout << "---------------------------------------" << std::endl;
-  }
-
-  // Print qpos joint IDs for each joint
-  std::cout << "Joint starting qpos IDs:" << std::endl;
-  for (uint16_t i = 0; i < model.nq; ++i) {
-    std::cout << "Joint " << model.jnt_name[i] << ": " << model.qpos_jnt_id[i]
-              << std::endl;
-  }
-}
-
-inline uint16_t jnt_name2id(const dyn::structs::Model &model,
-                            std::string jnt_name) {
-  for (uint16_t i = 0; i < model.nj; ++i) {
-    if (model.jnt_name[i] == jnt_name) {
-      return i;
-    }
-  }
-  throw std::runtime_error("Joint name not found: " + jnt_name);
-}
-
-inline uint16_t link_name2id(const dyn::structs::Model &model,
-                             std::string link_name) {
-  for (uint16_t i = 0; i < model.nl; ++i) {
-    if (model.link_name[i] == link_name) {
-      return i;
-    }
-  }
-  throw std::runtime_error("Link name not found: " + link_name);
-}
-} // namespace utils
-
+} // namespace algorithms
 } // namespace dyn
 
 /// do not change the name of the method
@@ -523,7 +625,7 @@ inline Eigen::Vector3d getEndEffectorPosition(const Eigen::VectorXd &gc) {
 
   // Updating the model
   data.q = gc;
-  dyn::update::update(model, data);
+  dyn::algorithms::update(model, data);
 
   // Get the end effector position
   return data.jnt_pos[dyn::utils::jnt_name2id(
