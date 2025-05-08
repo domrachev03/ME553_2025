@@ -16,4 +16,9 @@ create_executable(rotation_example_angle_axis src/rotation_example_angle_axis.cp
 create_executable(rotation_example_euler_angles src/rotation_example_euler_angles.cpp)
 create_executable(panda_example src/panda.cpp)
 
+# custom examples
+create_executable(forward_kinematics_panda examples/forward_kinematics_panda.cpp)
+create_executable(forward_kinematics_minicheetah examples/forward_kinematics_minicheetah.cpp)
+create_executable(forward_velocity_panda examples/forward_velocity_panda.cpp)
+
 # exam

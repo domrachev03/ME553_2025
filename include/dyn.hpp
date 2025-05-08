@@ -6,6 +6,7 @@
 #include <stack>
 #include <cstdint>
 #include <fstream>
+#include <iostream>
 #include <string>
 #include <sys/types.h>
 #include <tinyxml_rai/tinystr.h>
@@ -45,12 +46,13 @@ enum JointType {
   REVOLUTE = 1,
   PRISMATIC = 2,
   FREE = 3,
+  BALL = 4,
 };
 
 inline JointType getJointType(const std::string &type) {
   if (type == "fixed") {
     return FIXED;
-  } else if (type == "revolute") {
+  } else if (type == "revolute" || type == "continuous") {
     return REVOLUTE;
   } else if (type == "prismatic") {
     return PRISMATIC;
@@ -97,6 +99,11 @@ struct Model {
   uint16_t nv;
   std::vector<std::string> link_name;
   std::vector<uint16_t> link_parentid;
+  // std::vector<Eigen::Vector3d> link_i_pos;
+  // std::vector<Eigen::Matrix3d> link_i_rot;
+  // std::vector<float> link_mass;
+  // std::vector<Eigen::Matrix3d> link_I_w;
+  // std::vector<Eigen::Vector3d> link_subtree_com;
 
   std::vector<std::string> jnt_name;
   std::vector<uint16_t> jnt_parentid;
@@ -104,7 +111,7 @@ struct Model {
   std::vector<Eigen::Vector3d> jnt_rel_pos;
   std::vector<Eigen::Matrix3d> jnt_rel_rot;
   std::vector<JointType> jnt_type;
-  std::vector<Eigen::Vector3d> jnt_axis_local;
+  std::vector<Eigen::Vector<double, 6>> jnt_axis_local;
   std::vector<Eigen::Vector2d> jnt_range;
   std::vector<uint16_t> jnt_qaddr;
   Eigen::VectorX<uint16_t> jnt_dofadr;
@@ -206,18 +213,24 @@ inline void printModelInfo(const dyn::structs::Model &model) {
     std::cout << "    [" << model.jnt_rel_rot[i](2, 0) << ", "
               << model.jnt_rel_rot[i](2, 1) << ", "
               << model.jnt_rel_rot[i](2, 2) << "]" << std::endl;
-    std::cout << "  Axis: [" << model.jnt_axis_local[i][0] << ", "
-              << model.jnt_axis_local[i][1] << ", "
-              << model.jnt_axis_local[i][2] << "]" << std::endl;
+    std::cout << "  Axis (6D): [";
+    for (int k = 0; k < 6; ++k) {
+      std::cout << model.jnt_axis_local[i][k] << (k + 1 < 6 ? ", " : "");
+    }
+    std::cout << "]" << std::endl;
     std::cout << "  qaddr: " << model.jnt_qaddr[i] << std::endl;
     std::cout << "---------------------------------------" << std::endl;
   }
 
   // Print qpos joint IDs for each joint
   std::cout << "Joint starting qpos IDs:" << std::endl;
-  for (uint16_t i = 0; i < model.nq; ++i) {
-    std::cout << "Joint " << model.jnt_name[i] << ": " << model.qpos_jnt_id[i]
-              << std::endl;
+  uint16_t qpos_index = 0;
+  for (uint16_t i = 0; i < model.nj; ++i) {
+    for (uint16_t j = 0; j < structs::getJointQdof(model.jnt_type[i]); ++j) {
+      std::cout << "Joint " << model.jnt_name[i] << ": "
+                << model.qpos_jnt_id[qpos_index] << std::endl;
+      qpos_index++;
+    }
   }
 }
 
@@ -247,7 +260,27 @@ inline void reorder(std::vector<T> &vec, const std::vector<uint16_t> &order) {
 
 namespace parse {
 
-inline structs::Model parseURDF(const std::string &urdf) {
+inline void setFloatingBase(structs::Model &model) {
+  model.jnt_type[0] = structs::FREE;
+  // There is no reasonable way to limit ball and floating joints, and only
+  // scalar joints have limits
+  model.jnt_range[0] = Eigen::Vector2d(0, 0);
+  model.jnt_rel_pos[0] = Eigen::Vector3d::Zero();
+  model.jnt_rel_rot[0] = Eigen::Matrix3d::Identity();
+  model.jnt_qaddr[0] = 0;
+  model.jnt_dofadr[0] = 0;
+  model.jnt_axis_local[0] = Eigen::Vector<double, 6>::Zero();
+
+  // First 7 elements of qpos_jnt_id and 6 elements of dof_jnt_id are zeros
+  for (uint16_t i = 0; i < 6; ++i) {
+    model.qpos_jnt_id[i] = 0;
+    model.dof_jnt_id[i] = 0;
+  }
+  model.qpos_jnt_id[6] = 0;
+}
+
+inline structs::Model parseURDF(const std::string &urdf,
+                                const bool &floating_base) {
   structs::Model model;
   raisim::TiXmlDocument doc;
 
@@ -267,6 +300,18 @@ inline structs::Model parseURDF(const std::string &urdf) {
   std::vector<std::string> jnt_names;
   std::vector<std::string> jnt_parent_names;
   std::vector<std::string> jnt_child_names;
+
+  if (floating_base) {
+    model.nl = 1;
+    model.nj = 1;
+    model.nq = 7;
+    model.nv = 6;
+
+    link_names.push_back("_root");
+    jnt_names.push_back("floating_base_joint");
+    jnt_parent_names.push_back("_root");
+    jnt_child_names.push_back(""); // It is handled separately later
+  }
   // Count bodies and joints, and store their names and parent-child
   // relationships
   for (raisim::TiXmlElement *child = root->FirstChildElement();
@@ -313,23 +358,39 @@ inline structs::Model parseURDF(const std::string &urdf) {
   link_parentid.resize(model.nl);
   std::fill(link_parentid.begin(), link_parentid.end(), UINT16_MAX);
   link_childid.resize(model.nl);
-  uint16_t jnt_idx = 0;
+
+  // Finding childs for all links
   for (uint16_t i = 0; i < jnt_parent_names.size(); ++i) {
     std::string parent_name = jnt_parent_names[i];
-    jnt_parentid[jnt_idx] =
+    jnt_parentid[i] =
         std::find(link_names.begin(), link_names.end(), parent_name) -
         link_names.begin();
-    link_childid[jnt_parentid[jnt_idx]].push_back(jnt_idx);
-    jnt_idx++;
+    link_childid[jnt_parentid[i]].push_back(i);
   }
-  jnt_idx = 0;
+
+  // Finding parents for all links
   for (uint16_t i = 0; i < jnt_child_names.size(); ++i) {
+    if (floating_base && i == 0) {
+      continue;
+    }
     std::string child_name = jnt_child_names[i];
-    jnt_childid[jnt_idx] =
+    jnt_childid[i] =
         std::find(link_names.begin(), link_names.end(), child_name) -
         link_names.begin();
-    link_parentid[jnt_childid[jnt_idx]] = jnt_idx;
-    jnt_idx++;
+    link_parentid[jnt_childid[i]] = i;
+  }
+
+  // If there is floating base, set the child
+  if (floating_base) {
+    // Find link with no parent, and set it to be the child of the floating base
+    for (uint16_t i = 1; i < model.nl; ++i) {
+      if (link_parentid[i] == UINT16_MAX) {
+        link_parentid[i] = 0;
+        jnt_childid[0] = i;
+        jnt_child_names[0] = link_names[i];
+        break;
+      }
+    }
   }
 
   // Do depth-first search to find the id of link and joint
@@ -360,7 +421,7 @@ inline structs::Model parseURDF(const std::string &urdf) {
     }
 
     // Push all child joints into the stack
-    for (uint16_t j = 0; j < link_childid[link_idx].size(); ++j) {
+    for (int16_t j = link_childid[link_idx].size() - 1; j >= 0; --j) {
       link_stack.push(jnt_childid[link_childid[link_idx][j]]);
     }
   }
@@ -371,22 +432,18 @@ inline structs::Model parseURDF(const std::string &urdf) {
   utils::reorder(jnt_child_names, jnt_id);
 
   // Get new indices for the parent and child joints
-  jnt_idx = 0;
   for (uint16_t i = 0; i < jnt_parent_names.size(); ++i) {
     std::string parent_name = jnt_parent_names[i];
-    jnt_parentid[jnt_idx] =
+    jnt_parentid[i] =
         std::find(link_names.begin(), link_names.end(), parent_name) -
         link_names.begin();
-    jnt_idx++;
   }
-  jnt_idx = 0;
   for (uint16_t i = 0; i < jnt_child_names.size(); ++i) {
     std::string child_name = jnt_child_names[i];
-    jnt_childid[jnt_idx] =
+    jnt_childid[i] =
         std::find(link_names.begin(), link_names.end(), child_name) -
         link_names.begin();
-    link_parentid[jnt_childid[jnt_idx]] = jnt_idx;
-    jnt_idx++;
+    link_parentid[jnt_childid[i]] = i;
   }
   // Write the reordered names to the model
   model.link_name = link_names;
@@ -398,20 +455,20 @@ inline structs::Model parseURDF(const std::string &urdf) {
   // Initialize vectors
   model.jnt_type.resize(model.nj);
   model.jnt_range.resize(model.nj);
-  model.jnt_parentid.resize(model.nj);
-  model.jnt_childid.resize(model.nj);
   model.jnt_rel_pos.resize(model.nj);
   model.jnt_rel_rot.resize(model.nj);
   model.jnt_qaddr.resize(model.nj);
   model.jnt_axis_local.resize(model.nj);
   model.jnt_dofadr.resize(model.nj);
 
-  // FIXME: this is not the right way to do it
   model.qpos_jnt_id.resize(model.nq);
   model.dof_jnt_id.resize(model.nv);
   // Fill in the data
-  uint16_t jnt_qdof_index = 0;
-  uint16_t jnt_dof_index = 0;
+  if (floating_base) {
+    setFloatingBase(model);
+  }
+  uint16_t jnt_qdof_index = floating_base ? 7 : 0;
+  uint16_t jnt_dof_index = floating_base ? 6 : 0;
 
   for (raisim::TiXmlElement *child = root->FirstChildElement();
        child != nullptr; child = child->NextSiblingElement()) {
@@ -507,16 +564,45 @@ inline structs::Model parseURDF(const std::string &urdf) {
           }
         }
         if (strcmp(jnt_child->Value(), "axis") == 0) {
-          const char *axis = jnt_child->Attribute("xyz");
-          model.jnt_axis_local[joint_index] = Eigen::Vector3d::UnitX();
-          if (axis) {
-            if (std::sscanf(axis, "%lf %lf %lf",
-                            &model.jnt_axis_local[joint_index][0],
-                            &model.jnt_axis_local[joint_index][1],
-                            &model.jnt_axis_local[joint_index][2]) != 3) {
+          const char *axis_str = jnt_child->Attribute("xyz");
+          // default axis is X
+          Eigen::Vector3d axis3d = Eigen::Vector3d::UnitX();
+          if (axis_str) {
+            if (std::sscanf(axis_str, "%lf %lf %lf", &axis3d[0], &axis3d[1],
+                            &axis3d[2]) != 3) {
               throw std::runtime_error(
                   "Invalid axis attribute in URDF for joint " + joint_name);
             }
+          }
+
+          // grab the 6D axis slot
+          auto &ax6 = model.jnt_axis_local[joint_index];
+          ax6.setZero();
+
+          switch (model.jnt_type[joint_index]) {
+          case structs::PRISMATIC:
+            // translation only -> first 3 entries
+            ax6.head<3>() = axis3d;
+            break;
+
+          case structs::REVOLUTE:
+            // rotation only -> last 3 entries
+            ax6.tail<3>() = axis3d;
+            break;
+
+          case structs::BALL:
+            // ball joint -> fill all ones
+            ax6.tail<3>().setOnes();
+            break;
+
+          case structs::FREE:
+            // floating‐base or ball joint -> fill all ones
+            ax6.setOnes();
+            break;
+
+          default:
+            // FIXED or unsupported -> leave zero
+            break;
           }
         }
       }
@@ -526,7 +612,13 @@ inline structs::Model parseURDF(const std::string &urdf) {
   return model;
 }
 
-inline structs::Model parseURDFfromFile(const std::string &urdf_path) {
+inline structs::Model parseURDF(const std::string &urdf) {
+  // Parse the URDF string
+  return parseURDF(urdf, false);
+}
+
+inline structs::Model parseURDFfromFile(const std::string &urdf_path,
+                                        const bool &floating_base) {
   // Read the URDF file from the given path
   std::ifstream urdf_file(urdf_path);
   std::string str;
@@ -536,7 +628,11 @@ inline structs::Model parseURDFfromFile(const std::string &urdf_path) {
     file_contents.push_back('\n');
   }
 
-  return parseURDF(file_contents);
+  return parseURDF(file_contents, floating_base);
+}
+
+inline structs::Model parseURDFfromFile(const std::string &urdf_path) {
+  return parseURDFfromFile(urdf_path, false);
 }
 } // namespace parse
 
@@ -567,16 +663,16 @@ inline void computeForwardKinematics(const dyn::structs::Model &model,
     data.jnt_axis_pos[jnt_id] = Eigen::Vector3d::Zero();
     if (jnt_type == structs::REVOLUTE) {
       double q_i = data.q[model.jnt_qaddr[jnt_id]];
-      data.jnt_axis_rot[jnt_id] =
-          data.jnt_rot[jnt_id].transpose() * model.jnt_axis_local[jnt_id];
+      data.jnt_axis_rot[jnt_id] = data.jnt_rot[jnt_id].transpose() *
+                                  model.jnt_axis_local[jnt_id].tail(3);
       Eigen::Matrix3d jnt_rel_rot =
-          spatial::axisangle2rot(q_i * model.jnt_axis_local[jnt_id]);
+          spatial::axisangle2rot(q_i * model.jnt_axis_local[jnt_id].tail(3));
       data.jnt_rot[jnt_id] = data.jnt_rot[jnt_id] * jnt_rel_rot;
       data.jnt_axis_rot[jnt_id] =
-          data.jnt_rot[jnt_id] * model.jnt_axis_local[jnt_id];
+          data.jnt_rot[jnt_id] * model.jnt_axis_local[jnt_id].tail(3);
     } else if (jnt_type == structs::PRISMATIC) {
       data.jnt_axis_pos[jnt_id].head(3) =
-          data.jnt_rot[jnt_id] * model.jnt_axis_local[jnt_id];
+          data.jnt_rot[jnt_id] * model.jnt_axis_local[jnt_id].head(3);
       double q_i = data.q[model.jnt_qaddr[jnt_id]];
       data.jnt_pos[jnt_id] +=
           data.jnt_axis_pos[jnt_id] * q_i; // Update position
