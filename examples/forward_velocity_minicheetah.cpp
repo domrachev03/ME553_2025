@@ -2,19 +2,36 @@
 #include "raisim/RaisimServer.hpp"
 #include <chrono>
 
-inline Eigen::Vector3d getEndEffectorPosition(dyn::structs::Model &model,
-                                              dyn::structs::Data &data,
-                                              const Eigen::VectorXd &gc) {
+inline Eigen::Vector3d getLinearVelocity(dyn::structs::Model &model,
+                                         dyn::structs::Data &data,
+                                         const Eigen::VectorXd &gc,
+                                         const Eigen::VectorXd &gv) {
   // Updating the model
   data.q = gc;
-  data.v = Eigen::VectorXd::Zero(model.nv); // Assuming zero velocity
+  data.v = gv;
   dyn::algorithms::update(model, data);
 
-  // Get the end effector position
-  return data
-      .jnt_pos[dyn::utils::jnt_name2id(model, "RB_JOINT3")]; /// replace this
+  return data.jnt_lvel[dyn::utils::jnt_name2id(model, "RB_JOINT3")];
 }
 
+/// do not change the name of the method
+inline Eigen::Vector3d getAngularVelocity(dyn::structs::Model &model,
+                                          dyn::structs::Data &data,
+                                          const Eigen::VectorXd &gc,
+                                          const Eigen::VectorXd &gv) {
+  // Updating the model
+  data.q = gc;
+  data.v = gv;
+  dyn::algorithms::update(model, data);
+
+  return data.jnt_avel[dyn::utils::jnt_name2id(model, "RB_JOINT3")];
+}
+/**
+ * Generates a random configuration for the robot joints
+ * @param robot The articulated system (robot)
+ * @param seed Random seed for reproducibility
+ * @return Random joint configuration vector
+ */
 Eigen::VectorXd generateRandomJointConfig(raisim::ArticulatedSystem *robot,
                                           unsigned int seed = 0) {
   // Get the robot's configuration dimension
@@ -82,12 +99,35 @@ Eigen::VectorXd generateRandomJointConfig(raisim::ArticulatedSystem *robot,
   return jointConfig;
 }
 
+Eigen::VectorXd generateRandomJointVelocity(raisim::ArticulatedSystem *robot,
+                                            unsigned int seed = 0) {
+  // Get the robot's configuration dimension
+  Eigen::VectorXd jointVelocity(robot->getDOF());
+
+  // Setup random generator with provided seed
+  // Use seed if provided, otherwise create a new random seed
+  std::mt19937 gen;
+  if (seed == 0) {
+    std::random_device rd;
+    gen.seed(rd());
+  } else {
+    gen.seed(seed);
+  }
+
+  // Generate random values for each joint within its limits
+  for (int i = 0; i < jointVelocity.size(); ++i) {
+    std::uniform_real_distribution<double> dis(-2, 2);
+    jointVelocity[i] = dis(gen);
+  }
+
+  return jointVelocity;
+}
+
 int main(int argc, char *argv[]) {
   // build full URDF path
   std::filesystem::path urdfPath =
       std::filesystem::current_path().parent_path() / "resource" /
       "mini_cheetah" / "urdf" / "cheetah.urdf";
-
   // create raisim world
   raisim::World world;
   raisim::RaisimServer server(&world);
@@ -109,15 +149,8 @@ int main(int argc, char *argv[]) {
   // panda configuration
   Eigen::VectorXd jointNominalConfig(
       raisim_robot->getGeneralizedCoordinateDim());
-  {
-    auto limits = raisim_robot->getJointLimits();
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    for (int i = 0; i < jointNominalConfig.size(); ++i) {
-      std::uniform_real_distribution<double> dis(limits[i][0], limits[i][1]);
-      jointNominalConfig[i] = dis(gen);
-    }
-  }
+  Eigen::VectorXd jointVelocity(raisim_robot->getDOF());
+  raisim::Vec<3> tipVel, tipAngVel;
 
   server.launchServer();
   try {
@@ -131,23 +164,33 @@ int main(int argc, char *argv[]) {
           raisim_robot,
           static_cast<unsigned int>(
               std::chrono::system_clock::now().time_since_epoch().count()));
-      raisim_robot->setGeneralizedCoordinate(jointNominalConfig);
-      raisim_robot->updateKinematics();
-
-      // debug sphere
-      Eigen::Vector3d computed_pos =
-          getEndEffectorPosition(model, data, jointNominalConfig);
-      debugSphere->setPosition(computed_pos);
+      jointVelocity = generateRandomJointVelocity(
+          raisim_robot,
+          static_cast<unsigned int>(
+              std::chrono::system_clock::now().time_since_epoch().count()));
+      raisim_robot->setState(jointNominalConfig, jointVelocity);
+      raisim_robot->getFrameVelocity("RB_JOINT3", tipVel);
+      raisim_robot->getFrameAngularVelocity("RB_JOINT3", tipAngVel);
 
       // solution sphere
-      raisim::Vec<3> pos;
-      raisim_robot->getFramePosition("RB_JOINT3", pos);
-      answerSphere->setPosition(pos.e());
 
-      std::cout << "End effector position: " << computed_pos << std::endl;
-      std::cout << "Solution: " << pos << std::endl;
+      if ((tipVel.e() -
+           getLinearVelocity(model, data, jointNominalConfig, jointVelocity))
+              .norm() < 1e-8) {
+        std::cout << "the linear velocity is correct " << std::endl;
+      } else {
+        std::cout << "the linear velocity is not correct. It should be "
+                  << tipVel.e().transpose() << std::endl;
+      }
 
-      assert((computed_pos - pos.e()).norm() < 1e-6);
+      if ((tipAngVel.e() -
+           getAngularVelocity(model, data, jointNominalConfig, jointVelocity))
+              .norm() < 1e-8) {
+        std::cout << "the angular velocity is correct" << std::endl;
+      } else {
+        std::cout << "the angular velocity is not correct. It should be "
+                  << tipAngVel.e().transpose() << std::endl;
+      }
 
       std::this_thread::sleep_for(std::chrono::seconds(1));
     }

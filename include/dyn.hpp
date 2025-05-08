@@ -38,6 +38,23 @@ inline Eigen::Matrix3d axisangle2rot(const Eigen::Vector3d &axis) {
 
   return Eigen::AngleAxisd(theta, n).toRotationMatrix();
 }
+
+inline Eigen::Matrix3d quat2rot(const Eigen::Vector4d &quat) {
+  Eigen::Matrix3d rot;
+  double w = quat[0], x = quat[1], y = quat[2], z = quat[3];
+
+  rot << 1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y),
+      2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x),
+      2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y);
+
+  return rot;
+}
+
+inline Eigen::Matrix3d skew_matrix(const Eigen::Vector3d &v) {
+  Eigen::Matrix3d skew;
+  skew << 0, -v[2], v[1], v[2], 0, -v[0], -v[1], v[0], 0;
+  return skew;
+}
 } // namespace spatial
 
 namespace structs {
@@ -145,7 +162,6 @@ struct Data {
 inline structs::Data makeData(const structs::Model &model) {
   structs::Data data;
   data.q.resize(model.nq);
-  // data.v.resize(model.nv);
   data.link_pos.resize(model.nl);
   data.link_rot.resize(model.nl);
   data.jnt_pos.resize(model.nj);
@@ -269,7 +285,7 @@ inline void setFloatingBase(structs::Model &model) {
   model.jnt_rel_rot[0] = Eigen::Matrix3d::Identity();
   model.jnt_qaddr[0] = 0;
   model.jnt_dofadr[0] = 0;
-  model.jnt_axis_local[0] = Eigen::Vector<double, 6>::Zero();
+  model.jnt_axis_local[0] = Eigen::Vector<double, 6>::Ones();
 
   // First 7 elements of qpos_jnt_id and 6 elements of dof_jnt_id are zeros
   for (uint16_t i = 0; i < 6; ++i) {
@@ -661,21 +677,30 @@ inline void computeForwardKinematics(const dyn::structs::Model &model,
     // Handle joint effect
     structs::JointType jnt_type = structs::JointType(model.jnt_type[jnt_id]);
     data.jnt_axis_pos[jnt_id] = Eigen::Vector3d::Zero();
+    uint16_t q_addr = model.jnt_qaddr[jnt_id];
     if (jnt_type == structs::REVOLUTE) {
-      double q_i = data.q[model.jnt_qaddr[jnt_id]];
-      data.jnt_axis_rot[jnt_id] = data.jnt_rot[jnt_id].transpose() *
-                                  model.jnt_axis_local[jnt_id].tail(3);
+      double q_i = data.q[q_addr];
       Eigen::Matrix3d jnt_rel_rot =
           spatial::axisangle2rot(q_i * model.jnt_axis_local[jnt_id].tail(3));
       data.jnt_rot[jnt_id] = data.jnt_rot[jnt_id] * jnt_rel_rot;
       data.jnt_axis_rot[jnt_id] =
           data.jnt_rot[jnt_id] * model.jnt_axis_local[jnt_id].tail(3);
     } else if (jnt_type == structs::PRISMATIC) {
-      data.jnt_axis_pos[jnt_id].head(3) =
+      data.jnt_axis_pos[jnt_id] =
           data.jnt_rot[jnt_id] * model.jnt_axis_local[jnt_id].head(3);
-      double q_i = data.q[model.jnt_qaddr[jnt_id]];
+      double q_i = data.q[q_addr];
       data.jnt_pos[jnt_id] +=
           data.jnt_axis_pos[jnt_id] * q_i; // Update position
+    } else if (jnt_type == structs::FREE) {
+      auto q_floating = data.q(Eigen::seqN(q_addr, 7));
+      data.jnt_axis_pos[jnt_id] =
+          data.jnt_rot[jnt_id] * model.jnt_axis_local[jnt_id].head(3);
+      data.jnt_axis_rot[jnt_id] =
+          data.jnt_rot[jnt_id] * model.jnt_axis_local[jnt_id].tail(3);
+
+      data.jnt_pos[jnt_id] += q_floating.head(3); // Update position
+      data.jnt_rot[jnt_id] *= spatial::quat2rot(q_floating.tail(4));
+
     } else if (jnt_type != structs::FIXED) {
       // Print error that joint is unsupported
       std::cerr << "Joint type not supported: " << jnt_type << std::endl;
@@ -693,8 +718,8 @@ computeLinearJacobian(const dyn::structs::Model &model,
                       //  TODO: this should be implemented differently...
                       const bool &is_jnt, const Eigen::Vector3d &point) {
 
-  Eigen::MatrixXd Jpos(3, model.nv);
-  Jpos.setZero();
+  Eigen::MatrixXd Jlin(3, model.nv);
+  Jlin.setZero();
   Eigen::Vector3d r_ee;
   uint16_t jnt_id;
   if (is_jnt) {
@@ -709,19 +734,26 @@ computeLinearJacobian(const dyn::structs::Model &model,
     uint16_t dof_idx = model.jnt_dofadr[jnt_id];
 
     // TODO: does not support floating base
-    Jpos.col(dof_idx) +=
-        data.jnt_axis_pos[jnt_id] + data.jnt_axis_rot[jnt_id].cross(r_jnt_ee);
+    auto jnt_type = model.jnt_type[jnt_id];
+    if (jnt_type == structs::REVOLUTE || jnt_type == structs::PRISMATIC)
+      Jlin.col(dof_idx) +=
+          data.jnt_axis_pos[jnt_id] + data.jnt_axis_rot[jnt_id].cross(r_jnt_ee);
+    else if (jnt_type == structs::FREE) {
+      Jlin(Eigen::all, Eigen::seqN(dof_idx, 3)) += Eigen::Matrix3d::Identity();
+      Jlin(Eigen::all, Eigen::seqN(dof_idx + 3, 3)) +=
+          -spatial::skew_matrix(r_jnt_ee);
+    }
     jnt_id = model.link_parentid[model.jnt_parentid[jnt_id]];
   }
 
-  return Jpos;
+  return Jlin;
 }
 inline Eigen::MatrixXd computeAngularJacobian(const dyn::structs::Model &model,
                                               const dyn::structs::Data &data,
                                               const uint16_t &obj_id,
                                               const bool &is_jnt) {
-  Eigen::MatrixXd Jvel(3, model.nv);
-  Jvel.setZero();
+  Eigen::MatrixXd Jang(3, model.nv);
+  Jang.setZero();
   uint16_t jnt_id;
   if (is_jnt) {
     jnt_id = obj_id;
@@ -732,11 +764,17 @@ inline Eigen::MatrixXd computeAngularJacobian(const dyn::structs::Model &model,
     uint16_t dof_idx = model.jnt_dofadr[jnt_id];
 
     // TODO: does not support floating base
-    Jvel.col(dof_idx) += data.jnt_axis_rot[jnt_id];
+    auto jnt_type = model.jnt_type[jnt_id];
+    if (jnt_type == structs::REVOLUTE || jnt_type == structs::PRISMATIC)
+      Jang.col(dof_idx) += data.jnt_axis_rot[jnt_id];
+    else if (jnt_type == structs::FREE) {
+      Jang(Eigen::all, Eigen::seqN(dof_idx + 3, 3)) +=
+          Eigen::Matrix3d::Identity();
+    }
     jnt_id = model.link_parentid[model.jnt_parentid[jnt_id]];
   }
 
-  return Jvel;
+  return Jang;
 }
 
 inline Eigen::MatrixXd computeLinearJacobian(const dyn::structs::Model &model,

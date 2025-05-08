@@ -20,5 +20,6 @@ create_executable(panda_example src/panda.cpp)
 create_executable(forward_kinematics_panda examples/forward_kinematics_panda.cpp)
 create_executable(forward_kinematics_minicheetah examples/forward_kinematics_minicheetah.cpp)
 create_executable(forward_velocity_panda examples/forward_velocity_panda.cpp)
+create_executable(forward_velocity_minicheetah examples/forward_velocity_minicheetah.cpp)
 
 # exam
