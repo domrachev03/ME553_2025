@@ -1,6 +1,8 @@
-#include "dyn.hpp"
 #include "raisim/RaisimServer.hpp"
 #include <chrono>
+#include <dyn/algorithms/udpate.hpp>
+#include <dyn/parse.hpp>
+#include <dyn/structs.hpp>
 
 inline Eigen::Vector3d getLinearVelocity(dyn::structs::Model &model,
                                          dyn::structs::Data &data,

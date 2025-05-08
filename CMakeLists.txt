@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 project(ME553_2025)
 
 set(CMAKE_CXX_STANDARD 17)
+include_directories(include) # Add this line
 include(cmake/helper.cmake)
 
 # exercise
