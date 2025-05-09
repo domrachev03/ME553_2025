@@ -31,12 +31,36 @@ inline void setFloatingBase(structs::Model &model) {
   model.jnt_dofadr[0] = 0;
   model.jnt_axis_local[0] = Eigen::Vector<double, 6>::Ones();
 
+  model.link_i_pos[0] = Eigen::Vector3d::Zero();
+  model.link_i_rot[0] = Eigen::Matrix3d::Identity();
+  model.link_mass[0] = 0.0;
+  model.link_I[0] = Eigen::Matrix3d::Zero();
+
   // First 7 elements of qpos_jnt_id and 6 elements of dof_jnt_id are zeros
   for (uint16_t i = 0; i < 6; ++i) {
     model.qpos_jnt_id[i] = 0;
     model.dof_jnt_id[i] = 0;
   }
   model.qpos_jnt_id[6] = 0;
+}
+
+inline void constructWorldInertia(structs::Model &model) {
+  // Construct the world inertia matrix
+  std::vector<Eigen::Matrix3d> jnt_R_w(model.nj);
+  for (uint16_t jnt_idx = 0; jnt_idx < model.nj; ++jnt_idx) {
+    // Get the parent joint
+    uint16_t parent_link_idx = model.jnt_parentid[jnt_idx];
+    uint16_t parent_jnt_idx = model.link_parentid[parent_link_idx];
+    uint16_t child_link_idx = model.jnt_childid[jnt_idx];
+    if (parent_jnt_idx == UINT16_MAX) {
+      jnt_R_w[jnt_idx] = model.jnt_rel_rot[jnt_idx];
+    } else {
+      jnt_R_w[jnt_idx] = jnt_R_w[parent_jnt_idx] * model.jnt_rel_rot[jnt_idx];
+    }
+    auto link_R_w = jnt_R_w[jnt_idx] * model.link_i_rot[child_link_idx];
+    model.link_I[child_link_idx] =
+        link_R_w * model.link_I[child_link_idx] * link_R_w.transpose();
+  }
 }
 
 inline structs::Model parseURDF(const std::string &urdf,
@@ -213,6 +237,11 @@ inline structs::Model parseURDF(const std::string &urdf,
   model.jnt_childid = jnt_childid;
 
   // Initialize vectors
+  model.link_i_pos.resize(model.nl);
+  model.link_i_rot.resize(model.nl);
+  model.link_mass.resize(model.nl);
+  model.link_I.resize(model.nl);
+  model.link_I_w.resize(model.nl);
   model.jnt_type.resize(model.nj);
   model.jnt_range.resize(model.nj);
   model.jnt_rel_pos.resize(model.nj);
@@ -233,7 +262,87 @@ inline structs::Model parseURDF(const std::string &urdf,
   for (raisim::TiXmlElement *child = root->FirstChildElement();
        child != nullptr; child = child->NextSiblingElement()) {
     if (strcmp(child->Value(), "link") == 0) {
-      // ...
+      std::string link_name(child->Attribute("name"));
+      if (!link_name.size()) {
+        throw std::runtime_error("Link name attribute is missing");
+      }
+      // Getting index of the link
+      uint16_t link_index = utils::link_name2id(model, link_name);
+
+      // Setting default values
+      model.link_i_pos[link_index] = Eigen::Vector3d::Zero();
+      model.link_i_rot[link_index] = Eigen::Matrix3d::Identity();
+      model.link_mass[link_index] = 0.0;
+      model.link_I[link_index] = Eigen::Matrix3d::Zero();
+
+      for (raisim::TiXmlElement *jnt_child = child->FirstChildElement();
+           jnt_child != nullptr; jnt_child = jnt_child->NextSiblingElement()) {
+        if (strcmp(jnt_child->Value(), "inertial") == 0) {
+          // Parse the inertial <origin> element (xyz and rpy)
+          // Iterate over all children of the <inertial> element
+          for (raisim::TiXmlElement *elt = jnt_child->FirstChildElement();
+               elt != nullptr; elt = elt->NextSiblingElement()) {
+            const char *tag = elt->Value();
+
+            if (std::strcmp(tag, "origin") == 0) {
+              // parse <origin xyz="..." rpy="...">
+              const char *xyz = elt->Attribute("xyz");
+              if (xyz) {
+                if (std::sscanf(xyz, "%lf %lf %lf",
+                                &model.link_i_pos[link_index][0],
+                                &model.link_i_pos[link_index][1],
+                                &model.link_i_pos[link_index][2]) != 3) {
+                  throw std::runtime_error(
+                      "Invalid inertial origin xyz for link " + link_name);
+                }
+              }
+              const char *rpy = elt->Attribute("rpy");
+              if (rpy) {
+                Eigen::Vector3d rpy_vec;
+                if (std::sscanf(rpy, "%lf %lf %lf", &rpy_vec[0], &rpy_vec[1],
+                                &rpy_vec[2]) != 3) {
+                  throw std::runtime_error(
+                      "Invalid inertial origin rpy for link " + link_name);
+                }
+                model.link_i_rot[link_index] = spatial::rpy2rot(rpy_vec);
+              }
+
+            } else if (std::strcmp(tag, "mass") == 0) {
+              // parse <mass value="...">
+              const char *val = elt->Attribute("value");
+              if (!val ||
+                  std::sscanf(val, "%lf", &model.link_mass[link_index]) != 1) {
+                throw std::runtime_error(
+                    "Invalid mass attribute in URDF for link " + link_name);
+              }
+
+            } else if (std::strcmp(tag, "inertia") == 0) {
+              // parse <inertia ixx="..." ixy="..." ixz="..." iyy="..."
+              // iyz="..." izz="...">
+              double ixx, ixy, ixz, iyy, iyz, izz;
+              const char *s_ixx = elt->Attribute("ixx");
+              const char *s_ixy = elt->Attribute("ixy");
+              const char *s_ixz = elt->Attribute("ixz");
+              const char *s_iyy = elt->Attribute("iyy");
+              const char *s_iyz = elt->Attribute("iyz");
+              const char *s_izz = elt->Attribute("izz");
+              if (!s_ixx || !s_ixy || !s_ixz || !s_iyy || !s_iyz || !s_izz ||
+                  std::sscanf(s_ixx, "%lf", &ixx) != 1 ||
+                  std::sscanf(s_ixy, "%lf", &ixy) != 1 ||
+                  std::sscanf(s_ixz, "%lf", &ixz) != 1 ||
+                  std::sscanf(s_iyy, "%lf", &iyy) != 1 ||
+                  std::sscanf(s_iyz, "%lf", &iyz) != 1 ||
+                  std::sscanf(s_izz, "%lf", &izz) != 1) {
+                throw std::runtime_error(
+                    "Invalid inertia attributes in URDF for link " + link_name);
+              }
+              model.link_I[link_index] << ixx, ixy, ixz, ixy, iyy, iyz, ixz,
+                  iyz, izz;
+            }
+          }
+        }
+      }
+
     } else if (strcmp(child->Value(), "joint") == 0) {
       // Parsing name
       std::string joint_name(child->Attribute("name"));
@@ -368,6 +477,8 @@ inline structs::Model parseURDF(const std::string &urdf,
       }
     }
   }
+
+  constructWorldInertia(model);
 
   return model;
 }
