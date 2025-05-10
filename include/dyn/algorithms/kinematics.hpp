@@ -16,15 +16,19 @@ namespace kinematics {
 
 inline void computeForwardKinematics(const dyn::structs::Model &model,
                                      dyn::structs::Data &data) {
-  data.link_pos[0] = Eigen::Vector3d::Zero();
-  data.link_rot[0] = Eigen::Matrix3d::Identity();
+  data.jnt_pos[0] = Eigen::Vector3d::Zero();
+  data.jnt_rot[0] = Eigen::Matrix3d::Identity();
   for (uint16_t jnt_id = 0; jnt_id < model.nj; ++jnt_id) {
     // Get the parent frame
-    uint16_t parent_id = model.jnt_parentid[jnt_id];
-    uint16_t child_id = model.jnt_childid[jnt_id];
-    Eigen::Vector3d parent_pos = data.link_pos[parent_id];
-    Eigen::Matrix3d parent_rot = data.link_rot[parent_id];
+    uint16_t link_parent_id = model.jnt_parentid[jnt_id];
+    uint16_t jnt_parent_id = model.link_parentid[link_parent_id];
+    if (jnt_parent_id == UINT16_MAX) {
+      jnt_parent_id = 0; // Set to base if no parent
+    }
+    Eigen::Vector3d parent_pos = data.jnt_pos[jnt_parent_id];
+    Eigen::Matrix3d parent_rot = data.jnt_rot[jnt_parent_id];
 
+    uint16_t child_id = model.jnt_childid[jnt_id];
     // Compute the forward kinematics for each joint
     const auto &jnt_pos = model.jnt_rel_pos[jnt_id];
     const auto &joint_rot = model.jnt_rel_rot[jnt_id];
@@ -65,10 +69,19 @@ inline void computeForwardKinematics(const dyn::structs::Model &model,
     }
 
     // Set child body position and rotation
-    data.link_pos[child_id] = data.jnt_pos[jnt_id];
-    data.link_rot[child_id] = data.jnt_rot[jnt_id];
+    // data.link_i_pos[child_id] = data.jnt_pos[jnt_id];
+    // data.link_i_rot[child_id] = data.jnt_rot[jnt_id];
+    data.link_i_pos[child_id] =
+        data.jnt_pos[jnt_id] +
+        data.jnt_rot[jnt_id] * model.link_i_pos[child_id];
+
+    data.link_i_rot[child_id] =
+        model.link_i_rot[child_id] * data.jnt_rot[jnt_id];
   };
 }
+
+inline void computeCompositeMassInertia(const dyn::structs::Model &model,
+                                        dyn::structs::Data &data) {}
 } // namespace kinematics
 
 } // namespace algorithms

@@ -44,25 +44,6 @@ inline void setFloatingBase(structs::Model &model) {
   model.qpos_jnt_id[6] = 0;
 }
 
-inline void constructWorldInertia(structs::Model &model) {
-  // Construct the world inertia matrix
-  std::vector<Eigen::Matrix3d> jnt_R_w(model.nj);
-  for (uint16_t jnt_idx = 0; jnt_idx < model.nj; ++jnt_idx) {
-    // Get the parent joint
-    uint16_t parent_link_idx = model.jnt_parentid[jnt_idx];
-    uint16_t parent_jnt_idx = model.link_parentid[parent_link_idx];
-    uint16_t child_link_idx = model.jnt_childid[jnt_idx];
-    if (parent_jnt_idx == UINT16_MAX) {
-      jnt_R_w[jnt_idx] = model.jnt_rel_rot[jnt_idx];
-    } else {
-      jnt_R_w[jnt_idx] = jnt_R_w[parent_jnt_idx] * model.jnt_rel_rot[jnt_idx];
-    }
-    auto link_R_w = jnt_R_w[jnt_idx] * model.link_i_rot[child_link_idx];
-    model.link_I[child_link_idx] =
-        link_R_w * model.link_I[child_link_idx] * link_R_w.transpose();
-  }
-}
-
 inline structs::Model parseURDF(const std::string &urdf,
                                 const bool &floating_base) {
   structs::Model model;
@@ -241,7 +222,6 @@ inline structs::Model parseURDF(const std::string &urdf,
   model.link_i_rot.resize(model.nl);
   model.link_mass.resize(model.nl);
   model.link_I.resize(model.nl);
-  model.link_I_w.resize(model.nl);
   model.jnt_type.resize(model.nj);
   model.jnt_range.resize(model.nj);
   model.jnt_rel_pos.resize(model.nj);
@@ -477,8 +457,6 @@ inline structs::Model parseURDF(const std::string &urdf,
       }
     }
   }
-
-  constructWorldInertia(model);
 
   return model;
 }

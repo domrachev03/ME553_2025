@@ -27,7 +27,7 @@ computeLinearJacobian(const dyn::structs::Model &model,
     r_ee = data.jnt_pos[jnt_id] + point;
   } else {
     jnt_id = model.link_parentid[obj_id];
-    r_ee = data.link_pos[obj_id] + point;
+    r_ee = data.link_i_pos[obj_id] + point;
   }
   while (jnt_id != UINT16_MAX) {
     Eigen::Vector3d r_jnt_ee = r_ee - data.jnt_pos[jnt_id];

@@ -76,7 +76,6 @@ struct Model {
   std::vector<Eigen::Matrix3d> link_i_rot;
   std::vector<double> link_mass;
   std::vector<Eigen::Matrix3d> link_I;
-  std::vector<Eigen::Matrix3d> link_I_w;
 
   std::vector<std::string> jnt_name;
   std::vector<uint16_t> jnt_parentid;
@@ -97,13 +96,15 @@ struct Data {
   Eigen::VectorXd q;
   Eigen::VectorXd v;
 
-  std::vector<Eigen::Vector3d> link_pos;
-  std::vector<Eigen::Matrix3d> link_rot;
+  std::vector<Eigen::Vector3d> link_i_pos;
+  std::vector<Eigen::Matrix3d> link_i_rot;
+  std::vector<Eigen::Vector3d> link_I_world;
   std::vector<Eigen::Vector3d> link_lvel;
   std::vector<Eigen::Vector3d> link_avel;
   std::vector<Eigen::MatrixXd> link_Jpos;
   std::vector<Eigen::MatrixXd> link_Jrot;
   std::vector<Eigen::Vector3d> link_subtree_com;
+  std::vector<Eigen::Matrix3d> link_subtree_I;
 
   std::vector<Eigen::MatrixXd> jnt_Jpos;
   std::vector<Eigen::MatrixXd> jnt_Jrot;
@@ -120,18 +121,19 @@ struct Data {
 inline structs::Data makeData(const structs::Model &model) {
   structs::Data data;
   data.q.resize(model.nq);
-  data.link_pos.resize(model.nl);
-  data.link_rot.resize(model.nl);
+  data.link_i_pos.resize(model.nl);
+  data.link_i_rot.resize(model.nl);
   data.jnt_pos.resize(model.nj);
   data.jnt_rot.resize(model.nj);
-  data.jnt_lvel.resize(model.nl);
-  data.jnt_avel.resize(model.nl);
+  data.jnt_lvel.resize(model.nj);
+  data.jnt_avel.resize(model.nj);
   data.jnt_axis_pos.resize(model.nj);
   data.jnt_axis_rot.resize(model.nj);
   data.link_lvel.resize(model.nl);
   data.link_avel.resize(model.nl);
   data.link_Jpos.resize(model.nl);
   data.link_subtree_com.resize(model.nl);
+  data.link_subtree_I.resize(model.nl);
   for (uint16_t i = 0; i < model.nl; ++i) {
     data.link_Jpos[i].resize(3, model.nv);
   }
