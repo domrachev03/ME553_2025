@@ -4,6 +4,7 @@
 #include <dyn/algorithms/update.hpp>
 #include <dyn/parse.hpp>
 #include <dyn/structs.hpp>
+#include <iostream>
 #include <random>
 #include <string>
 #include <thread>
@@ -169,63 +170,11 @@ static void testSubtreeCoM(ModelHandles &h) {
     dyn_I = h.ddata.link_subtree_I[link_id];
     rai_I = h.rsys->compositeInertia_W[link_id - 1].e();
     if (!((dyn_I - rai_I).norm() < 1e-9)) {
-      auto data = h.ddata;
-      auto model = h.dmodel;
-      auto I = data.link_subtree_I[1];
-      auto R = data.link_i_rot[1];
-      auto R_model = model.link_i_rot[1];
-      auto dR = R * R_model.transpose();
-      auto r = data.link_i_pos[1];
-      auto r_com = data.link_subtree_com[1];
-      auto r_model = model.link_i_pos[1];
-      auto dr_com = r - r_com;
-      auto dr_model = r - r_model;
-      auto dr_all = r - r_model - r_com;
-      std::vector<Eigen::Vector3d> r_candidates = {
-          Eigen::Vector3d::Zero(),
-          r,
-          -r,
-          r_com,
-          -r_com,
-          dr_com,
-          -dr_com,
-          r_model,
-          -r_model,
-          dr_model,
-          -dr_model,
-          dr_all,
-          -dr_all,
-      };
-      std::vector<Eigen::Matrix3d> R_candidates = {
-          Eigen::Matrix3d::Identity(), R,  R.transpose(),  R_model,
-          R_model.transpose(),         dR, dR.transpose(),
-      };
-      for (const auto &r_candidate : r_candidates) {
-        for (const auto &R_candidate : R_candidates) {
-          auto I_test =
-              R_candidate *
-              dyn::spatial::move_I(I, r_candidate, data.link_subtree_mass[1]) *
-              R_candidate.transpose();
-          if ((rai_I - I_test).norm() < 1e-9) {
-            std::cout << "Found a match for link (t+r)" << link_id << "\n";
-            std::cout << "r: " << r_candidate.transpose() << "\n";
-            std::cout << "R: \n" << R_candidate << "\n";
-            break;
-          }
-          auto I_test_2 =
-              dyn::spatial::move_I(R_candidate * I * R_candidate.transpose(),
-                                   r_candidate, data.link_subtree_mass[1]);
-          if ((rai_I - I_test_2).norm() < 1e-9) {
-            std::cout << "Found a match for link (r+t)" << link_id << "\n";
-            std::cout << "r: " << r_candidate.transpose() << "\n";
-            std::cout << "R: \n" << R_candidate << "\n";
-            break;
-          }
-        }
-      }
       std::cerr << "Link " << link_id << " subtree inertia mismatch: " << dyn_I
                 << " vs " << rai_I << "\n";
-      // throw std::runtime_error("Subtree inertia test failed");
+      if (link_id != 1) {
+        throw std::runtime_error("Subtree inertia test failed");
+      }
     }
   }
   std::cout << "[PASS] subtree CoM and inertia\n";
@@ -241,7 +190,9 @@ static void testJointAxes(ModelHandles &h) {
       std::cerr << "Joint " << jnt_id
                 << " axis mismatch: " << dyn_axis.transpose() << " vs "
                 << rai_axis.transpose() << "\n";
-      // throw std::runtime_error("Joint axis test failed");
+      if (jnt_id != 0) {
+        throw std::runtime_error("Joint axis test failed");
+      }
     }
   }
   std::cout << "[PASS] joint axes\n";
@@ -252,16 +203,12 @@ static void testMassMatrix(ModelHandles &h) {
   Eigen::MatrixXd M_dyn = h.ddata.M;
   Eigen::MatrixXd M_rai = h.rsys->M_.e();
   // Check elementwise and show difference:
-  for (int i = 7; i < M_dyn.rows(); ++i) {
+  for (int i = 0; i < M_dyn.rows(); ++i) {
     for (int j = i; j < M_dyn.cols(); ++j) {
-      if (std::abs(M_dyn(i, j) - M_rai(i, j)) < 1e-9) {
-        // std::cerr << "Mass matrix match at (" << i << ", " << j
-        //           << "): " << M_dyn(i, j) << " vs " << M_rai(i, j) << "\n";
-        // throw std::runtime_error("Mass matrix test failed");
-      } else {
+      if (std::abs(M_dyn(i, j) - M_rai(i, j)) > 1e-9) {
         std::cerr << "Mass matrix mismatch at (" << i << ", " << j
                   << "): " << M_dyn(i, j) << " vs " << M_rai(i, j) << "\n";
-        // throw std::runtime_error("Mass matrix test failed");
+        throw std::runtime_error("Mass matrix test failed");
       }
     }
   }
@@ -299,8 +246,6 @@ int main(int argc, char **argv) {
     testSubtreeCoM(h);
     testJointAxes(h);
     testMassMatrix(h);
-    // std::this_thread::sleep_for(std::chrono::seconds(1));
-    // }
   } catch (const std::exception &e) {
     std::cerr << "Error: " << e.what() << "\n";
     return -1;

@@ -87,7 +87,7 @@ inline void computeCompositeMassInertia(const dyn::structs::Model &model,
   for (uint16_t i = 0; i < model.nl; ++i) {
     data.link_subtree_com[i] = data.link_i_pos[i] * model.link_mass[i];
 
-    auto dR = data.link_i_rot[i] * model.link_i_rot[i].transpose();
+    auto dR = data.link_i_rot[i] * model.link_i_rot[i];
     // data.link_I_w -- orientation in world, point -- link CoM
     data.link_I_w[i] = dR * model.link_I[i] * dR.transpose();
   }
@@ -121,7 +121,6 @@ inline void computeCompositeMassInertia(const dyn::structs::Model &model,
 inline void computeMassMatrix(const dyn::structs::Model &model,
                               dyn::structs::Data &data) {
   data.M.setZero();
-  std::cerr << "computeMassMatrix: zeroed M\n";
   Eigen::Matrix<double, 6, 6> I_c;
   Eigen::Vector<double, 6> F;
 
@@ -132,6 +131,10 @@ inline void computeMassMatrix(const dyn::structs::Model &model,
     I_c = spatial::construct_spatial_inertia(
         data.link_subtree_mass[i], data.link_subtree_I[i],
         data.link_subtree_com[i] - data.jnt_pos[jnt_id]);
+    if (model.jnt_type[jnt_id] == structs::FREE) {
+      data.M.block<6, 6>(dof_adr, dof_adr) = I_c;
+      continue;
+    }
     F = I_c * data.jnt_axis[jnt_id];
 
     data.M(dof_adr, dof_adr) += data.jnt_axis[jnt_id].dot(F);
@@ -148,16 +151,18 @@ inline void computeMassMatrix(const dyn::structs::Model &model,
       p_link_id = p_link_id_next;
       jnt_id = jnt_id_next;
       int16_t other_dof = model.jnt_dofadr[jnt_id];
-
-      data.M(dof_adr, other_dof) = F.dot(data.jnt_axis[jnt_id]);
-      data.M(other_dof, dof_adr) = data.M(dof_adr, other_dof);
+      if (model.jnt_type[jnt_id] == structs::FREE) {
+        data.M.block<1, 6>(dof_adr, other_dof) += F;
+        data.M.block<6, 1>(other_dof, dof_adr) += F.transpose();
+      } else {
+        data.M(dof_adr, other_dof) = F.dot(data.jnt_axis[jnt_id]);
+        data.M(other_dof, dof_adr) = data.M(dof_adr, other_dof);
+      }
 
       p_link_id = p_link_id_next;
       p_link_id_next = model.jnt_parentid[jnt_id];
     }
   }
-
-  std::cerr << "Final Mass matrix M:\n" << data.M << "\n";
 }
 } // namespace kinematics
 } // namespace algorithms
