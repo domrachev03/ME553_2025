@@ -53,6 +53,32 @@ inline Eigen::Matrix3d move_I(const Eigen::Matrix3d &I,
   return (I + m * (r.squaredNorm() * Eigen::Matrix3d::Identity() -
                    r * r.transpose()));
 }
+
+inline Eigen::Matrix<double, 6, 6>
+get_dof_mapping_matrix(const Eigen::Vector3d &r) {
+  Eigen::Matrix<double, 6, 6> X;
+  X.setZero();
+  X.block<3, 3>(0, 0) = Eigen::Matrix3d::Identity();
+  X.block<3, 3>(3, 3) = Eigen::Matrix3d::Identity();
+  X.block<3, 3>(3, 0) = -spatial::skew_matrix(r);
+
+  return X;
+}
+
+inline Eigen::Matrix<double, 6, 6>
+construct_spatial_inertia(const double &m, const Eigen::Matrix3d &I,
+                          const Eigen::Vector3d &r) {
+  Eigen::Matrix3d r_skew = spatial::skew_matrix(r);
+  Eigen::Matrix3d m_r_skew = m * r_skew;
+  Eigen::Matrix<double, 6, 6> J;
+  J.setZero();
+  J.block<3, 3>(0, 0) = m * Eigen::Matrix3d::Identity();
+  J.block<3, 3>(3, 3) = I - m_r_skew * r_skew;
+  J.block<3, 3>(0, 3) = -m_r_skew;
+  J.block<3, 3>(3, 0) = m_r_skew;
+
+  return J;
+}
 } // namespace spatial
 
 } // namespace dyn

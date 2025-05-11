@@ -89,7 +89,7 @@ struct Model {
   Eigen::VectorX<uint16_t> jnt_dofadr;
 
   std::vector<uint16_t> qpos_jnt_id;
-  Eigen::VectorX<uint16_t> dof_jnt_id;
+  std::vector<uint16_t> dof_jnt_id;
 };
 
 struct Data {
@@ -115,8 +115,9 @@ struct Data {
   std::vector<Eigen::Vector3d> jnt_avel;
   // This is axis along which the joint is moving in the world frame
   // First three components are translation, last three are rotation
-  std::vector<Eigen::Vector3d> jnt_axis_pos;
-  std::vector<Eigen::Vector3d> jnt_axis_rot;
+  std::vector<Eigen::Vector<double, 6>> jnt_axis;
+
+  Eigen::MatrixXd M;
 };
 
 inline structs::Data makeData(const structs::Model &model) {
@@ -128,8 +129,7 @@ inline structs::Data makeData(const structs::Model &model) {
   data.jnt_rot.resize(model.nj);
   data.jnt_lvel.resize(model.nj);
   data.jnt_avel.resize(model.nj);
-  data.jnt_axis_pos.resize(model.nj);
-  data.jnt_axis_rot.resize(model.nj);
+  data.jnt_axis.resize(model.nj);
   data.link_lvel.resize(model.nl);
   data.link_avel.resize(model.nl);
   data.link_Jpos.resize(model.nl);
@@ -152,6 +152,8 @@ inline structs::Data makeData(const structs::Model &model) {
   for (uint16_t i = 0; i < model.nj; ++i) {
     data.jnt_Jrot[i].resize(3, model.nv);
   }
+
+  data.M.resize(model.nv, model.nv);
 
   return data;
 }

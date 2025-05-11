@@ -15,6 +15,7 @@ inline void update(const dyn::structs::Model &model, dyn::structs::Data &data) {
   kinematics::computeForwardKinematics(model, data);
   kinematics::computeCompositeMassInertia(model, data);
   kinematics::computeJandVel(model, data);
+  kinematics::computeMassMatrix(model, data);
 }
 } // namespace algorithms
 } // namespace dyn

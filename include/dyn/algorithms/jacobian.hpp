@@ -36,8 +36,8 @@ computeLinearJacobian(const dyn::structs::Model &model,
     // TODO: does not support floating base
     auto jnt_type = model.jnt_type[jnt_id];
     if (jnt_type == structs::REVOLUTE || jnt_type == structs::PRISMATIC)
-      Jlin.col(dof_idx) +=
-          data.jnt_axis_pos[jnt_id] + data.jnt_axis_rot[jnt_id].cross(r_jnt_ee);
+      Jlin.col(dof_idx) += data.jnt_axis[jnt_id].head<3>() +
+                           data.jnt_axis[jnt_id].tail<3>().cross(r_jnt_ee);
     else if (jnt_type == structs::FREE) {
       Jlin(Eigen::all, Eigen::seqN(dof_idx, 3)) += Eigen::Matrix3d::Identity();
       Jlin(Eigen::all, Eigen::seqN(dof_idx + 3, 3)) +=
@@ -66,7 +66,7 @@ inline Eigen::MatrixXd computeAngularJacobian(const dyn::structs::Model &model,
     // TODO: does not support floating base
     auto jnt_type = model.jnt_type[jnt_id];
     if (jnt_type == structs::REVOLUTE || jnt_type == structs::PRISMATIC)
-      Jang.col(dof_idx) += data.jnt_axis_rot[jnt_id];
+      Jang.col(dof_idx) += data.jnt_axis[jnt_id].tail(3);
     else if (jnt_type == structs::FREE) {
       Jang(Eigen::all, Eigen::seqN(dof_idx + 3, 3)) +=
           Eigen::Matrix3d::Identity();

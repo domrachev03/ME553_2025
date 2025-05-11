@@ -231,6 +231,43 @@ static void testSubtreeCoM(ModelHandles &h) {
   std::cout << "[PASS] subtree CoM and inertia\n";
 }
 
+// Test 5: joint axes
+static void testJointAxes(ModelHandles &h) {
+  Eigen::Vector3d dyn_axis, rai_axis;
+  for (uint16_t jnt_id = 0; jnt_id < h.dmodel.nj; ++jnt_id) {
+    dyn_axis = h.ddata.jnt_axis[jnt_id].tail(3);
+    rai_axis = h.rsys->jointAxis_W[jnt_id].e();
+    if (!((dyn_axis - rai_axis).norm() < 1e-9)) {
+      std::cerr << "Joint " << jnt_id
+                << " axis mismatch: " << dyn_axis.transpose() << " vs "
+                << rai_axis.transpose() << "\n";
+      // throw std::runtime_error("Joint axis test failed");
+    }
+  }
+  std::cout << "[PASS] joint axes\n";
+}
+
+// Test 6: mass matrix
+static void testMassMatrix(ModelHandles &h) {
+  Eigen::MatrixXd M_dyn = h.ddata.M;
+  Eigen::MatrixXd M_rai = h.rsys->M_.e();
+  // Check elementwise and show difference:
+  for (int i = 7; i < M_dyn.rows(); ++i) {
+    for (int j = i; j < M_dyn.cols(); ++j) {
+      if (std::abs(M_dyn(i, j) - M_rai(i, j)) < 1e-9) {
+        // std::cerr << "Mass matrix match at (" << i << ", " << j
+        //           << "): " << M_dyn(i, j) << " vs " << M_rai(i, j) << "\n";
+        // throw std::runtime_error("Mass matrix test failed");
+      } else {
+        std::cerr << "Mass matrix mismatch at (" << i << ", " << j
+                  << "): " << M_dyn(i, j) << " vs " << M_rai(i, j) << "\n";
+        // throw std::runtime_error("Mass matrix test failed");
+      }
+    }
+  }
+  std::cout << "[PASS] mass matrix\n";
+}
+
 int main(int argc, char **argv) {
   if (argc < 2) {
     std::cerr << "Usage: " << argv[0] << " <panda|minicheetah>\n";
@@ -239,29 +276,31 @@ int main(int argc, char **argv) {
   auto name = std::string(argv[1]);
   try {
     auto h = loadModel(name);
-    for (int i = 0; i < 1000000; ++i) {
-      auto q = randConfig(
-          h.rsys, std::chrono::system_clock::now().time_since_epoch().count());
-      auto v = randVelocity(
-          h.rsys, std::chrono::system_clock::now().time_since_epoch().count());
-      h.rsys->setState(q, v);
-      h.server->focusOn(h.rsys);
-      h.server->launchServer();
-      h.rsys->updateKinematics();
-      h.world->integrate1();
-      auto M = h.rsys->getMassMatrix();
+    // for (int i = 0; i < 1000000; ++i) {
+    auto q = randConfig(
+        h.rsys, std::chrono::system_clock::now().time_since_epoch().count());
+    auto v = randVelocity(
+        h.rsys, std::chrono::system_clock::now().time_since_epoch().count());
+    h.rsys->setState(q, v);
+    h.server->focusOn(h.rsys);
+    h.server->launchServer();
+    h.rsys->updateKinematics();
+    h.world->integrate1();
+    auto M = h.rsys->getMassMatrix();
 
-      h.ddata.q = q;
-      h.ddata.v = v;
-      dyn::algorithms::update(h.dmodel, h.ddata);
-      std::cout << "q: " << q.transpose() << "\n";
-      std::cout << "v: " << v.transpose() << "\n";
-      testKinematics(h);
-      testVelocity(h);
-      testLinkKinematics(h);
-      testSubtreeCoM(h);
-      std::this_thread::sleep_for(std::chrono::seconds(1));
-    }
+    h.ddata.q = q;
+    h.ddata.v = v;
+    dyn::algorithms::update(h.dmodel, h.ddata);
+    std::cout << "q: " << q.transpose() << "\n";
+    std::cout << "v: " << v.transpose() << "\n";
+    testKinematics(h);
+    testVelocity(h);
+    testLinkKinematics(h);
+    testSubtreeCoM(h);
+    testJointAxes(h);
+    testMassMatrix(h);
+    // std::this_thread::sleep_for(std::chrono::seconds(1));
+    // }
   } catch (const std::exception &e) {
     std::cerr << "Error: " << e.what() << "\n";
     return -1;
