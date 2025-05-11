@@ -3,6 +3,7 @@
 
 #include "../spatial.hpp" // Changed from <dyn/spatial.hpp>
 #include "../structs.hpp" // Changed from <dyn/structs.hpp>
+#include "Eigen/src/Core/Matrix.h"
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <cstdint>
@@ -69,8 +70,6 @@ inline void computeForwardKinematics(const dyn::structs::Model &model,
     }
 
     // Set child body position and rotation
-    // data.link_i_pos[child_id] = data.jnt_pos[jnt_id];
-    // data.link_i_rot[child_id] = data.jnt_rot[jnt_id];
     data.link_i_pos[child_id] =
         data.jnt_pos[jnt_id] +
         data.jnt_rot[jnt_id] * model.link_i_pos[child_id];
@@ -81,7 +80,43 @@ inline void computeForwardKinematics(const dyn::structs::Model &model,
 }
 
 inline void computeCompositeMassInertia(const dyn::structs::Model &model,
-                                        dyn::structs::Data &data) {}
+                                        dyn::structs::Data &data) {
+  // Set the subcom mass and inertia to zero
+  data.link_subtree_mass = model.link_mass;
+  uint16_t child_link_id, parent_link_id;
+  for (uint16_t i = 0; i < model.nl; ++i) {
+    data.link_subtree_com[i] = data.link_i_pos[i] * model.link_mass[i];
+
+    auto dR = data.link_i_rot[i] * model.link_i_rot[i].transpose();
+    // data.link_I_w -- orientation in world, point -- link CoM
+    data.link_I_w[i] = dR * model.link_I[i] * dR.transpose();
+  }
+
+  for (int16_t jnt_id = model.nj - 1; jnt_id >= 0; --jnt_id) {
+    child_link_id = model.jnt_childid[jnt_id];
+    parent_link_id = model.jnt_parentid[jnt_id];
+    data.link_subtree_com[parent_link_id] +=
+        data.link_subtree_com[child_link_id];
+    data.link_subtree_mass[parent_link_id] +=
+        data.link_subtree_mass[child_link_id];
+  }
+
+  for (uint16_t i = 0; i < model.nl; ++i) {
+    data.link_subtree_com[i] /= data.link_subtree_mass[i];
+    data.link_subtree_I[i] = spatial::move_I(
+        data.link_I_w[i], data.link_subtree_com[i] - data.link_i_pos[i],
+        model.link_mass[i]);
+  }
+  for (int16_t jnt_id = model.nj - 1; jnt_id >= 0; --jnt_id) {
+    child_link_id = model.jnt_childid[jnt_id];
+    parent_link_id = model.jnt_parentid[jnt_id];
+    data.link_subtree_I[parent_link_id] +=
+        spatial::move_I(data.link_subtree_I[child_link_id],
+                        data.link_subtree_com[parent_link_id] -
+                            data.link_subtree_com[child_link_id],
+                        data.link_subtree_mass[child_link_id]);
+  }
+}
 } // namespace kinematics
 
 } // namespace algorithms

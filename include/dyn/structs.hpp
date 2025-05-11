@@ -98,11 +98,12 @@ struct Data {
 
   std::vector<Eigen::Vector3d> link_i_pos;
   std::vector<Eigen::Matrix3d> link_i_rot;
-  std::vector<Eigen::Vector3d> link_I_world;
   std::vector<Eigen::Vector3d> link_lvel;
   std::vector<Eigen::Vector3d> link_avel;
   std::vector<Eigen::MatrixXd> link_Jpos;
   std::vector<Eigen::MatrixXd> link_Jrot;
+  std::vector<Eigen::Matrix3d> link_I_w;
+  std::vector<double> link_subtree_mass;
   std::vector<Eigen::Vector3d> link_subtree_com;
   std::vector<Eigen::Matrix3d> link_subtree_I;
 
@@ -132,6 +133,8 @@ inline structs::Data makeData(const structs::Model &model) {
   data.link_lvel.resize(model.nl);
   data.link_avel.resize(model.nl);
   data.link_Jpos.resize(model.nl);
+  data.link_I_w.resize(model.nl);
+  data.link_subtree_mass.resize(model.nl);
   data.link_subtree_com.resize(model.nl);
   data.link_subtree_I.resize(model.nl);
   for (uint16_t i = 0; i < model.nl; ++i) {

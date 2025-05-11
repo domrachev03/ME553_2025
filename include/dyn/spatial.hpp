@@ -47,6 +47,12 @@ inline Eigen::Matrix3d skew_matrix(const Eigen::Vector3d &v) {
   skew << 0, -v[2], v[1], v[2], 0, -v[0], -v[1], v[0], 0;
   return skew;
 }
+
+inline Eigen::Matrix3d move_I(const Eigen::Matrix3d &I,
+                              const Eigen::Vector3d &r, const double &m) {
+  return (I + m * (r.squaredNorm() * Eigen::Matrix3d::Identity() -
+                   r * r.transpose()));
+}
 } // namespace spatial
 
 } // namespace dyn

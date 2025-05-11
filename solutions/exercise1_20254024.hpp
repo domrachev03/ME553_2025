@@ -4,7 +4,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <arm_neon.h>
-#include <dyn/algorithms/udpate.hpp>
+#include <dyn/algorithms/update.hpp>
 #include <dyn/parse.hpp>
 #include <dyn/structs.hpp>
 #include <dyn.hpp>

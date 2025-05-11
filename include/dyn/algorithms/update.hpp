@@ -13,6 +13,7 @@ inline void update(const dyn::structs::Model &model, dyn::structs::Data &data) {
   // Update the kinematics of the model based on the current state
   // This is a placeholder implementation
   kinematics::computeForwardKinematics(model, data);
+  kinematics::computeCompositeMassInertia(model, data);
   kinematics::computeJandVel(model, data);
 }
 } // namespace algorithms
