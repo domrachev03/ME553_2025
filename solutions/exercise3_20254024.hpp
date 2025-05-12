@@ -3,17 +3,15 @@
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
-#include <Eigen/src/Core/Matrix.h>
 #include <algorithm>
-#include <arm_neon.h>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <stack>
 #include <stdexcept>
 #include <string>
-#include <sys/types.h>
 #include <tinyxml_rai/tinystr.h>
 #include <tinyxml_rai/tinyxml_rai.h>
 #include <vector>
