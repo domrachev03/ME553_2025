@@ -3,7 +3,6 @@
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
-#include <arm_neon.h>
 #include <dyn.hpp>
 #include <filesystem>
 #include <sys/types.h>
