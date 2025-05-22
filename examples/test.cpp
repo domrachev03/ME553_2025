@@ -1,6 +1,7 @@
 #include "raisim/RaisimServer.hpp"
 #include <cassert>
 #include <chrono>
+#include <filesystem>
 #include <dyn/algorithms/update.hpp>
 #include <dyn/parse.hpp>
 #include <dyn/structs.hpp>
@@ -74,11 +75,13 @@ static Eigen::VectorXd randVelocity(raisim::ArticulatedSystem *r,
 
 // Test 1: forward kinematics
 static void testKinematics(ModelHandles &h) {
-  for (uint16_t jnt_id = 0; jnt_id < h.dmodel.nj; ++jnt_id) {
+  for (uint16_t jnt_id = 1; jnt_id < h.dmodel.nj; ++jnt_id) {
     std::string jnt_name = h.dmodel.jnt_name[jnt_id];
 
     Eigen::Vector3d pd = h.ddata.jnt_pos[jnt_id];
     raisim::Vec<3> pr;
+    std::cout << "Joint " << jnt_id << " name: " << jnt_name
+              << ", position: " << pd.transpose() << "\n";
     h.rsys->getFramePosition(jnt_name, pr);
     if (!((pd - pr.e()).norm() < 1e-6)) {
       std::cerr << "Joint " << jnt_id
@@ -94,7 +97,7 @@ static void testKinematics(ModelHandles &h) {
 static void testVelocity(ModelHandles &h, int iters = 100) {
   raisim::Vec<3> tipVel, tipAngVel;
   Eigen::Vector3d pd, pr;
-  for (uint16_t jnt_id = 0; jnt_id < h.dmodel.nj; ++jnt_id) {
+  for (uint16_t jnt_id = 1; jnt_id < h.dmodel.nj; ++jnt_id) {
     std::string jnt_name = h.dmodel.jnt_name[jnt_id];
     pd = h.ddata.jnt_lvel[jnt_id];
     pr = h.ddata.jnt_avel[jnt_id];

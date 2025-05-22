@@ -3,7 +3,6 @@
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
-#include <arm_neon.h>
 #include <cstdint>
 #include <stdexcept>
 #include <string>

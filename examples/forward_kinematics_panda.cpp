@@ -1,5 +1,6 @@
 #include "raisim/RaisimServer.hpp"
 #include <chrono>
+#include <filesystem>
 #include <dyn/algorithms/update.hpp>
 #include <dyn/parse.hpp>
 #include <dyn/structs.hpp>
