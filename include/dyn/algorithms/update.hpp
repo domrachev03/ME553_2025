@@ -2,8 +2,9 @@
 #define DYN_ALGORITHMS_UPDATE_HPP
 
 #include "../structs.hpp"
-#include "jacobian.hpp"
+#include "acceleration.hpp"
 #include "kinematics.hpp"
+#include "velocity.hpp"
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
@@ -14,8 +15,11 @@ inline void update(const dyn::structs::Model &model, dyn::structs::Data &data) {
   // This is a placeholder implementation
   kinematics::computeForwardKinematics(model, data);
   kinematics::computeCompositeMassInertia(model, data);
-  kinematics::computeJandVel(model, data);
   kinematics::computeMassMatrix(model, data);
+
+  velocity::computeVelocity(model, data);
+
+  acceleration::computeAcceleration(model, data);
 }
 } // namespace algorithms
 } // namespace dyn

@@ -1,10 +1,10 @@
 #include "raisim/RaisimServer.hpp"
 #include <cassert>
 #include <chrono>
-#include <filesystem>
 #include <dyn/algorithms/update.hpp>
 #include <dyn/parse.hpp>
 #include <dyn/structs.hpp>
+#include <filesystem>
 #include <iostream>
 #include <random>
 #include <string>
@@ -218,6 +218,26 @@ static void testMassMatrix(ModelHandles &h) {
   std::cout << "[PASS] mass matrix\n";
 }
 
+// Test 7: acceleration
+static void testAcceleration(ModelHandles &h) {
+  raisim::Vec<3> tipAcc, tipAngAcc;
+  Eigen::Vector3d lin_acc;
+  for (uint16_t jnt_id = 1; jnt_id < h.dmodel.nj; ++jnt_id) {
+    std::string jnt_name = h.dmodel.jnt_name[jnt_id];
+    lin_acc = h.ddata.jnt_lacc[jnt_id];
+    // ang_acc = h.ddata.jnt_aacc[jnt_id];
+    h.rsys->getFrameAcceleration(jnt_name, tipAcc);
+    // h.rsys->getFrameAngularAcceleration(jnt_name, tipAngAcc);
+
+    if (!((lin_acc - tipAcc.e()).norm() < 1e-6)) {
+      std::cerr << "Joint " << jnt_id
+                << " acceleration mismatch: " << lin_acc.transpose() << " vs "
+                << tipAcc.e().transpose() << "\n";
+      throw std::runtime_error("Acceleration test failed");
+    }
+  }
+  std::cout << "[PASS] acceleration\n";
+}
 int main(int argc, char **argv) {
   if (argc < 2) {
     std::cerr << "Usage: " << argv[0] << " <panda|minicheetah>\n";
@@ -237,6 +257,8 @@ int main(int argc, char **argv) {
     h.rsys->updateKinematics();
     h.world->integrate1();
     auto M = h.rsys->getMassMatrix();
+    h.rsys->setComputeInverseDynamics(true);
+    h.rsys->getNonlinearities({0, 0, 0});
 
     h.ddata.q = q;
     h.ddata.v = v;
@@ -249,6 +271,7 @@ int main(int argc, char **argv) {
     testSubtreeCoM(h);
     testJointAxes(h);
     testMassMatrix(h);
+    testAcceleration(h);
   } catch (const std::exception &e) {
     std::cerr << "Error: " << e.what() << "\n";
     return -1;

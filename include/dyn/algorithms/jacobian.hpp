@@ -102,27 +102,6 @@ inline Eigen::MatrixXd computeJacobian(const dyn::structs::Model &model,
       computeAngularJacobian(model, data, obj_id, is_jnt);
   return J;
 }
-
-inline void computeJandVel(const dyn::structs::Model &model,
-                           dyn::structs::Data &data) {
-  for (uint16_t i = 0; i < model.nl; ++i) {
-    data.link_Jpos[i] =
-        computeLinearJacobian(model, data, i, false, Eigen::Vector3d::Zero());
-    data.link_lvel[i] = data.link_Jpos[i] * data.v;
-
-    data.link_Jrot[i] = computeAngularJacobian(model, data, i, false);
-    data.link_avel[i] = data.link_Jrot[i] * data.v;
-  }
-
-  for (uint16_t i = 0; i < model.nj; ++i) {
-    data.jnt_Jpos[i] = computeLinearJacobian(model, data, i);
-    data.jnt_lvel[i] = data.jnt_Jpos[i] * data.v;
-
-    data.jnt_Jrot[i] = computeAngularJacobian(model, data, i);
-    data.jnt_avel[i] = data.jnt_Jrot[i] * data.v;
-  }
-}
-
 } // namespace kinematics
 } // namespace algorithms
 } // namespace dyn
