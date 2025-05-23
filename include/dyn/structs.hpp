@@ -1,6 +1,7 @@
 #ifndef DYN_STRUCTS_HPP
 #define DYN_STRUCTS_HPP
 
+#include "Eigen/src/Core/Matrix.h"
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <cstdint>
@@ -94,40 +95,37 @@ struct Model {
 struct Data {
   Eigen::VectorXd q;
   Eigen::VectorXd v;
-  Eigen::VectorXd dv;
 
   std::vector<Eigen::Vector3d> link_i_pos;
   std::vector<Eigen::Matrix3d> link_i_rot;
   std::vector<Eigen::Vector3d> link_lvel;
   std::vector<Eigen::Vector3d> link_avel;
-  std::vector<Eigen::Vector3d> link_lacc;
-  std::vector<Eigen::Vector3d> link_aacc;
   std::vector<Eigen::Matrix3d> link_I_w;
   std::vector<double> link_subtree_mass;
   std::vector<Eigen::Vector3d> link_subtree_com;
   std::vector<Eigen::Matrix3d> link_subtree_I;
+  std::vector<Eigen::Vector3d> link_ext_force;
+  std::vector<Eigen::Vector3d> link_ext_torque;
 
   std::vector<Eigen::Vector3d> jnt_pos;
   std::vector<Eigen::Matrix3d> jnt_rot;
   std::vector<Eigen::Vector3d> jnt_lvel;
   std::vector<Eigen::Vector3d> jnt_avel;
-  std::vector<Eigen::Vector3d> jnt_lacc;
-  std::vector<Eigen::Vector3d> jnt_aacc;
   // This is axis along which the joint is moving in the world frame
   // First three components are translation, last three are rotation
   std::vector<Eigen::Vector<double, 6>> jnt_axis;
 
   Eigen::MatrixXd M;
+  Eigen::VectorXd b;
+  Eigen::Vector3d gravity;
 };
 
 inline structs::Data makeData(const structs::Model &model) {
   structs::Data data;
   data.q.resize(model.nq);
-  data.q.fill(0);
+  data.q.setZero();
   data.v.resize(model.nv);
-  data.v.fill(0);
-  data.dv.resize(model.nv);
-  data.dv.fill(0);
+  data.v.setZero();
 
   data.link_i_pos.resize(model.nl);
   data.link_i_rot.resize(model.nl);
@@ -135,18 +133,18 @@ inline structs::Data makeData(const structs::Model &model) {
   data.jnt_rot.resize(model.nj);
   data.jnt_lvel.resize(model.nj);
   data.jnt_avel.resize(model.nj);
-  data.jnt_lacc.resize(model.nj);
-  data.jnt_aacc.resize(model.nj);
   data.jnt_axis.resize(model.nj);
   data.link_lvel.resize(model.nl);
   data.link_avel.resize(model.nl);
-  data.link_lacc.resize(model.nl);
-  data.link_aacc.resize(model.nl);
   data.link_I_w.resize(model.nl);
   data.link_subtree_mass.resize(model.nl);
   data.link_subtree_com.resize(model.nl);
   data.link_subtree_I.resize(model.nl);
+  data.link_ext_force.resize(model.nl, Eigen::Vector3d::Zero());
+  data.link_ext_torque.resize(model.nl, Eigen::Vector3d::Zero());
+
   data.M.resize(model.nv, model.nv);
+  data.b.resize(model.nv);
 
   return data;
 }

@@ -3,6 +3,7 @@
 
 #include "../structs.hpp"
 #include "acceleration.hpp"
+#include "dynamics.hpp"
 #include "kinematics.hpp"
 #include "velocity.hpp"
 #include <Eigen/Core>
@@ -19,7 +20,8 @@ inline void update(const dyn::structs::Model &model, dyn::structs::Data &data) {
 
   velocity::computeVelocity(model, data);
 
-  acceleration::computeAcceleration(model, data);
+  // dynamics::addGravityForce(model, data);
+  dynamics::computeBias(model, data);
 }
 } // namespace algorithms
 } // namespace dyn
