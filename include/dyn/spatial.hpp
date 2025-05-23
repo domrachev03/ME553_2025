@@ -42,6 +42,7 @@ inline Eigen::Matrix3d quat2rot(const Eigen::Vector4d &quat) {
   return rot;
 }
 
+// TODO: replace most skew matrices with cross product
 inline Eigen::Matrix3d skew_matrix(const Eigen::Vector3d &v) {
   Eigen::Matrix3d skew;
   skew << 0, -v[2], v[1], v[2], 0, -v[0], -v[1], v[0], 0;
