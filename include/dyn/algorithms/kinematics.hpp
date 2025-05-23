@@ -17,7 +17,6 @@ namespace kinematics {
 
 inline void computeForwardKinematics(const dyn::structs::Model &model,
                                      dyn::structs::Data &data) {
-  data.jnt_pos[0] = Eigen::Vector3d::Zero();
   data.jnt_rot[0] = Eigen::Matrix3d::Identity();
   for (uint16_t jnt_id = 0; jnt_id < model.nj; ++jnt_id) {
     // Get the parent frame

@@ -1,9 +1,9 @@
 #include "raisim/RaisimServer.hpp"
 #include <chrono>
-#include <filesystem>
 #include <dyn/algorithms/update.hpp>
 #include <dyn/parse.hpp>
 #include <dyn/structs.hpp>
+#include <filesystem>
 
 inline Eigen::Vector3d getLinearVelocity(dyn::structs::Model &model,
                                          dyn::structs::Data &data,
@@ -143,8 +143,11 @@ int main(int argc, char *argv[]) {
               .norm() < 1e-8) {
         std::cout << "the linear velocity is correct " << std::endl;
       } else {
-        std::cout << "the linear velocity is not correct. It should be "
-                  << tipVel.e().transpose() << std::endl;
+        std::cout << "the linear velocity is not correct."
+                  << getLinearVelocity(model, data, jointNominalConfig,
+                                       jointVelocity)
+                         .transpose()
+                  << " vs " << tipVel.e().transpose() << std::endl;
       }
 
       if ((tipAngVel.e() -
