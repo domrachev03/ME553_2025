@@ -20,7 +20,6 @@ inline void update(const dyn::structs::Model &model, dyn::structs::Data &data) {
 
   velocity::computeVelocity(model, data);
 
-  // dynamics::addGravityForce(model, data);
   dynamics::computeBias(model, data);
 }
 } // namespace algorithms

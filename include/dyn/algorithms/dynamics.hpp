@@ -3,7 +3,6 @@
 
 #include "../spatial.hpp"
 #include "../structs.hpp"
-#include "Eigen/src/Core/Matrix.h"
 #include "acceleration.hpp"
 #include <Eigen/Core>
 #include <Eigen/Geometry>

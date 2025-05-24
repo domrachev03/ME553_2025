@@ -1,14 +1,13 @@
 #ifndef DYN_ALGORITHMS_KINEMATICS_HPP
 #define DYN_ALGORITHMS_KINEMATICS_HPP
 
-#include "../spatial.hpp" // Changed from <dyn/spatial.hpp>
-#include "../structs.hpp" // Changed from <dyn/structs.hpp>
-#include "Eigen/src/Core/Matrix.h"
+#include "../spatial.hpp"
+#include "../structs.hpp"
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <cstdint>
-#include <iostream> // For std::cerr, std::endl
-#include <vector> // For Eigen::seqN if used with std::vector indirectly, or for other vector uses
+#include <iostream>
+#include <vector>
 
 namespace dyn {
 namespace algorithms {
@@ -17,6 +16,7 @@ namespace kinematics {
 
 inline void computeForwardKinematics(const dyn::structs::Model &model,
                                      dyn::structs::Data &data) {
+  data.jnt_pos[0] = Eigen::Vector3d::Zero();
   data.jnt_rot[0] = Eigen::Matrix3d::Identity();
   for (uint16_t jnt_id = 0; jnt_id < model.nj; ++jnt_id) {
     // Get the parent frame

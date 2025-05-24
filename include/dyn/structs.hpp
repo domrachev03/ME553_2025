@@ -1,7 +1,6 @@
 #ifndef DYN_STRUCTS_HPP
 #define DYN_STRUCTS_HPP
 
-#include "Eigen/src/Core/Matrix.h"
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <cstdint>
@@ -140,8 +139,8 @@ inline structs::Data makeData(const structs::Model &model) {
   data.link_subtree_mass.resize(model.nl);
   data.link_subtree_com.resize(model.nl);
   data.link_subtree_I.resize(model.nl);
-  data.link_ext_force.resize(model.nl, Eigen::Vector3d::Zero());
-  data.link_ext_torque.resize(model.nl, Eigen::Vector3d::Zero());
+  data.link_ext_force.resize(model.nl);
+  data.link_ext_torque.resize(model.nl);
 
   data.M.resize(model.nv, model.nv);
   data.b.resize(model.nv);
