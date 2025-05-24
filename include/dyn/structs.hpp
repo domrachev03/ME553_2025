@@ -119,7 +119,7 @@ struct Data {
   Eigen::Vector3d gravity;
 };
 
-inline structs::Data makeData(const structs::Model& model) {
+inline structs::Data makeData(const structs::Model &model) {
   structs::Data data;
   // zero‐init q and v
   data.q = Eigen::VectorXd::Zero(model.nq);
@@ -142,11 +142,11 @@ inline structs::Data makeData(const structs::Model& model) {
   data.jnt_rot.assign(model.nj, Eigen::Matrix3d::Zero());
   data.jnt_lvel.assign(model.nj, Eigen::Vector3d::Zero());
   data.jnt_avel.assign(model.nj, Eigen::Vector3d::Zero());
-  data.jnt_axis.assign(model.nj, Eigen::Matrix<double,6,1>::Zero());
+  data.jnt_axis.assign(model.nj, Eigen::Matrix<double, 6, 1>::Zero());
 
   // zero‐init mass matrix, bias vector and gravity
-  data.M   = Eigen::MatrixXd::Zero(model.nv, model.nv);
-  data.b   = Eigen::VectorXd::Zero(model.nv);
+  data.M = Eigen::MatrixXd::Zero(model.nv, model.nv);
+  data.b = Eigen::VectorXd::Zero(model.nv);
   data.gravity.setZero();
 
   return data;
