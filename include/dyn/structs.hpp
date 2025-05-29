@@ -99,15 +99,13 @@ struct Data {
   std::vector<Eigen::Matrix3d> link_i_rot;
   std::vector<Eigen::Vector3d> link_lvel;
   std::vector<Eigen::Vector3d> link_avel;
-  std::vector<Eigen::MatrixXd> link_Jpos;
-  std::vector<Eigen::MatrixXd> link_Jrot;
   std::vector<Eigen::Matrix3d> link_I_w;
   std::vector<double> link_subtree_mass;
   std::vector<Eigen::Vector3d> link_subtree_com;
   std::vector<Eigen::Matrix3d> link_subtree_I;
+  std::vector<Eigen::Vector3d> link_ext_force;
+  std::vector<Eigen::Vector3d> link_ext_torque;
 
-  std::vector<Eigen::MatrixXd> jnt_Jpos;
-  std::vector<Eigen::MatrixXd> jnt_Jrot;
   std::vector<Eigen::Vector3d> jnt_pos;
   std::vector<Eigen::Matrix3d> jnt_rot;
   std::vector<Eigen::Vector3d> jnt_lvel;
@@ -117,11 +115,17 @@ struct Data {
   std::vector<Eigen::Vector<double, 6>> jnt_axis;
 
   Eigen::MatrixXd M;
+  Eigen::VectorXd b;
+  Eigen::Vector3d gravity;
 };
 
 inline structs::Data makeData(const structs::Model &model) {
   structs::Data data;
   data.q.resize(model.nq);
+  data.q.setZero();
+  data.v.resize(model.nv);
+  data.v.setZero();
+
   data.link_i_pos.resize(model.nl);
   data.link_i_rot.resize(model.nl);
   data.jnt_pos.resize(model.nj);
@@ -131,28 +135,15 @@ inline structs::Data makeData(const structs::Model &model) {
   data.jnt_axis.resize(model.nj);
   data.link_lvel.resize(model.nl);
   data.link_avel.resize(model.nl);
-  data.link_Jpos.resize(model.nl);
   data.link_I_w.resize(model.nl);
   data.link_subtree_mass.resize(model.nl);
   data.link_subtree_com.resize(model.nl);
   data.link_subtree_I.resize(model.nl);
-  for (uint16_t i = 0; i < model.nl; ++i) {
-    data.link_Jpos[i].resize(3, model.nv);
-  }
-  data.link_Jrot.resize(model.nl);
-  for (uint16_t i = 0; i < model.nl; ++i) {
-    data.link_Jrot[i].resize(3, model.nv);
-  }
-  data.jnt_Jpos.resize(model.nj);
-  for (uint16_t i = 0; i < model.nj; ++i) {
-    data.jnt_Jpos[i].resize(3, model.nv);
-  }
-  data.jnt_Jrot.resize(model.nj);
-  for (uint16_t i = 0; i < model.nj; ++i) {
-    data.jnt_Jrot[i].resize(3, model.nv);
-  }
+  data.link_ext_force.resize(model.nl);
+  data.link_ext_torque.resize(model.nl);
 
   data.M.resize(model.nv, model.nv);
+  data.b.resize(model.nv);
 
   return data;
 }

@@ -1,14 +1,13 @@
 #ifndef DYN_ALGORITHMS_KINEMATICS_HPP
 #define DYN_ALGORITHMS_KINEMATICS_HPP
 
-#include "../spatial.hpp" // Changed from <dyn/spatial.hpp>
-#include "../structs.hpp" // Changed from <dyn/structs.hpp>
-#include "Eigen/src/Core/Matrix.h"
+#include "../spatial.hpp"
+#include "../structs.hpp"
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <cstdint>
-#include <iostream> // For std::cerr, std::endl
-#include <vector> // For Eigen::seqN if used with std::vector indirectly, or for other vector uses
+#include <iostream>
+#include <vector>
 
 namespace dyn {
 namespace algorithms {

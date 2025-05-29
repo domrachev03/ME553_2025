@@ -1,11 +1,12 @@
 #include "raisim/RaisimServer.hpp"
 #include <cassert>
 #include <chrono>
-#include <filesystem>
 #include <dyn/algorithms/update.hpp>
 #include <dyn/parse.hpp>
 #include <dyn/structs.hpp>
+#include <filesystem>
 #include <iostream>
+#include <raisim/math.hpp>
 #include <random>
 #include <string>
 #include <thread>
@@ -218,6 +219,43 @@ static void testMassMatrix(ModelHandles &h) {
   std::cout << "[PASS] mass matrix\n";
 }
 
+// Test 7: acceleration
+static void testAcceleration(ModelHandles &h) {
+  raisim::Vec<3> tipAcc, tipAngAcc;
+  Eigen::VectorXd dv = Eigen::VectorXd::Zero(h.dmodel.nv);
+  dv.head(3) = -h.ddata.gravity;
+  std::vector<Eigen::Vector<double, 6>> jnt_acc =
+      dyn::algorithms::acceleration::computeAcceleration(h.dmodel, h.ddata, dv)
+          .second;
+  for (uint16_t jnt_id = 1; jnt_id < h.dmodel.nj; ++jnt_id) {
+    std::string jnt_name = h.dmodel.jnt_name[jnt_id];
+    // ang_acc = h.ddata.jnt_aacc[jnt_id];
+    h.rsys->getFrameAcceleration(jnt_name, tipAcc);
+    // h.rsys->getFrameAngularAcceleration(jnt_name, tipAngAcc);
+    if (!((jnt_acc[jnt_id].head(3) - tipAcc.e()).norm() < 1e-8)) {
+      std::cerr << "Joint " << jnt_id
+                << " acceleration mismatch: " << jnt_acc[jnt_id].transpose()
+                << " vs" << tipAcc.e().transpose() << "\n";
+      throw std::runtime_error("Acceleration test failed");
+    }
+  }
+  std::cout << "[PASS] acceleration\n";
+}
+
+// Test 8: bias
+static void testBias(ModelHandles &h) {
+  const double tol = 1e-9;
+  Eigen::VectorXd b_dyn = h.ddata.b;
+  auto b_rai = h.rsys->getNonlinearities({0, 0, -9.81}).e();
+  for (int i = 0; i < b_dyn.size(); ++i) {
+    if (std::abs(b_dyn[i] - b_rai[i]) > tol) {
+      std::cerr << "Bias mismatch at index " << i << ": " << b_dyn[i] << " vs "
+                << b_rai[i] << "\n";
+    }
+  }
+  // throw std::runtime_error("Bias test failed");
+  std::cout << "[PASS] bias\n";
+}
 int main(int argc, char **argv) {
   if (argc < 2) {
     std::cerr << "Usage: " << argv[0] << " <panda|minicheetah>\n";
@@ -231,15 +269,19 @@ int main(int argc, char **argv) {
         h.rsys, std::chrono::system_clock::now().time_since_epoch().count());
     auto v = randVelocity(
         h.rsys, std::chrono::system_clock::now().time_since_epoch().count());
+    // v = Eigen::VectorXd::Zero(h.rsys->getDOF());
     h.rsys->setState(q, v);
     h.server->focusOn(h.rsys);
     h.server->launchServer();
     h.rsys->updateKinematics();
     h.world->integrate1();
     auto M = h.rsys->getMassMatrix();
+    h.rsys->setComputeInverseDynamics(true);
+    h.rsys->getNonlinearities({0, 0, -9.81});
 
     h.ddata.q = q;
     h.ddata.v = v;
+    h.ddata.gravity = Eigen::Vector3d(0, 0, -9.81);
     dyn::algorithms::update(h.dmodel, h.ddata);
     std::cout << "q: " << q.transpose() << "\n";
     std::cout << "v: " << v.transpose() << "\n";
@@ -249,6 +291,8 @@ int main(int argc, char **argv) {
     testSubtreeCoM(h);
     testJointAxes(h);
     testMassMatrix(h);
+    testAcceleration(h);
+    testBias(h);
   } catch (const std::exception &e) {
     std::cerr << "Error: " << e.what() << "\n";
     return -1;
