@@ -228,7 +228,7 @@ inline structs::Model parseURDF(const std::string &urdf,
   model.jnt_rel_rot.resize(model.nj);
   model.jnt_qaddr.resize(model.nj);
   model.jnt_axis_local.resize(model.nj);
-  model.jnt_dofadr.resize(model.nj);
+  model.jnt_dofadr.assign(model.nj, 0.0);
 
   model.qpos_jnt_id.resize(model.nq);
   model.dof_jnt_id.resize(model.nv);

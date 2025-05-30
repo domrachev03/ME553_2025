@@ -119,12 +119,14 @@ inline void computeCompositeMassInertia(const dyn::structs::Model &model,
 
 inline void computeMassMatrix(const dyn::structs::Model &model,
                               dyn::structs::Data &data) {
-  data.M.setZero();
   Eigen::Matrix<double, 6, 6> I_c;
   Eigen::Vector<double, 6> F;
 
-  for (int16_t i = model.nl - 1; i >= 1; --i) {
+  for (int16_t i = model.nl - 1; i > 0; --i) {
     uint16_t jnt_id = model.link_parentid[i];
+    if (model.jnt_type[jnt_id] == structs::FIXED) {
+      continue; // Skip fixed joints
+    }
     uint16_t dof_adr = model.jnt_dofadr[jnt_id];
 
     I_c = spatial::construct_spatial_inertia(
@@ -135,7 +137,6 @@ inline void computeMassMatrix(const dyn::structs::Model &model,
       continue;
     }
     F = I_c * data.jnt_axis[jnt_id];
-
     data.M(dof_adr, dof_adr) += data.jnt_axis[jnt_id].dot(F);
 
     uint16_t p_link_id = i;
@@ -153,7 +154,7 @@ inline void computeMassMatrix(const dyn::structs::Model &model,
       if (model.jnt_type[jnt_id] == structs::FREE) {
         data.M.block<1, 6>(dof_adr, other_dof) += F;
         data.M.block<6, 1>(other_dof, dof_adr) += F.transpose();
-      } else {
+      } else if (model.jnt_type[jnt_id] != structs::FIXED) {
         data.M(dof_adr, other_dof) = F.dot(data.jnt_axis[jnt_id]);
         data.M(other_dof, dof_adr) = data.M(dof_adr, other_dof);
       }

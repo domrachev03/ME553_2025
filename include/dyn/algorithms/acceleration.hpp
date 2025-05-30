@@ -25,6 +25,13 @@ computeAcceleration(const dyn::structs::Model &model,
   link_acc[0] = Eigen::Vector<double, 6>::Zero();
   jnt_acc[0] = Eigen::Vector<double, 6>::Zero();
 
+
+  // if (model.jnt_type[0] == dyn::structs::FREE) {
+    // If the first joint is free, we need to set the first 6 elements of dv
+    // to zero, as they are not used in the acceleration computation
+  jnt_acc[0].head(3) -= data.gravity;
+  link_acc[0].head(3) -= data.gravity;
+  // }
   structs::JointType jnt_type;
   uint16_t q_addr, dof_addr, parent_link_id, parent_jnt_id;
   Eigen::Matrix3d omega_skew, alpha_skew;
