@@ -25,13 +25,11 @@ computeAcceleration(const dyn::structs::Model &model,
   link_acc[0] = Eigen::Vector<double, 6>::Zero();
   jnt_acc[0] = Eigen::Vector<double, 6>::Zero();
 
-
-  // if (model.jnt_type[0] == dyn::structs::FREE) {
-    // If the first joint is free, we need to set the first 6 elements of dv
-    // to zero, as they are not used in the acceleration computation
-  jnt_acc[0].head(3) -= data.gravity;
+  // If the first joint is free, we need to set the first 6 elements of dv
+  // to zero, as they are not used in the acceleration computation
   link_acc[0].head(3) -= data.gravity;
-  // }
+  jnt_acc[0].head(3) -= data.gravity;
+
   structs::JointType jnt_type;
   uint16_t q_addr, dof_addr, parent_link_id, parent_jnt_id;
   Eigen::Matrix3d omega_skew, alpha_skew;
@@ -66,7 +64,13 @@ computeAcceleration(const dyn::structs::Model &model,
     // Type-dependent components of the joint acceleration
     jnt_type = structs::JointType(model.jnt_type[jnt_id]);
     if (jnt_type == structs::PRISMATIC) {
-      // TODO: complete
+      omega_skew = spatial::skew_matrix(data.jnt_avel[jnt_id]);
+      jnt_acc[jnt_id].head(3) +=
+          (spatial::skew_matrix(jnt_acc[jnt_id].tail(3)) +
+           omega_skew * omega_skew) *
+              data.jnt_axis[jnt_id].head(3) * data.q[q_addr] +
+          2 * omega_skew * data.jnt_axis[jnt_id].head(3) * data.v[dof_addr] +
+          data.jnt_axis[jnt_id].head(3) * dv[dof_addr];
     } else if (jnt_type == structs::REVOLUTE) {
       jnt_acc[jnt_id].tail(3) += data.jnt_axis[jnt_id].tail(3) * dv[dof_addr] +
                                  spatial::skew_matrix(data.jnt_avel[jnt_id]) *
