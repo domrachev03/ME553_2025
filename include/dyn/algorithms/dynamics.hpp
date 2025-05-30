@@ -14,15 +14,6 @@ namespace algorithms {
 
 namespace dynamics {
 
-inline void addGravityForce(const dyn::structs::Model &model,
-                            dyn::structs::Data &data) {
-  for (uint16_t i = 0; i < model.nl; ++i) {
-    data.link_ext_force[i].setZero();
-    data.link_ext_torque[i].setZero();
-    data.link_ext_force[i] = model.link_mass[i] * data.gravity;
-  }
-}
-
 inline Eigen::VectorXd recursiveNewtonEulerAlgorithm(
     const dyn::structs::Model &model, dyn::structs::Data &data,
     const Eigen::VectorXd &dv, const bool &include_external) {
@@ -60,7 +51,6 @@ inline Eigen::VectorXd recursiveNewtonEulerAlgorithm(
     link_child_id = model.jnt_childid[jnt_id];
     link_parent_id = model.jnt_parentid[jnt_id];
     jnt_parent_id = model.link_parentid[link_parent_id];
-    dof_addr = model.jnt_dofadr[jnt_id];
 
     // First step -- compute tau for current joint
     // Subtree Spatial Inertia
@@ -76,10 +66,12 @@ inline Eigen::VectorXd recursiveNewtonEulerAlgorithm(
                    data.jnt_avel[jnt_id];
     f = I_c * jnt_acc[jnt_id] + bias + net_wrench[jnt_id];
     jnt_type = structs::JointType(model.jnt_type[jnt_id]);
-    if (jnt_type != structs::FREE) {
-      tau[dof_addr] = data.jnt_axis[jnt_id].dot(f);
-    } else {
+
+    dof_addr = model.jnt_dofadr[jnt_id];
+    if (jnt_type == structs::FREE) {
       tau(Eigen::seqN(dof_addr, 6)) = f;
+    } else if (jnt_type != structs::FIXED) {
+      tau[dof_addr] = data.jnt_axis[jnt_id].dot(f);
     }
 
     // Then -- update parent's wrench
@@ -98,7 +90,6 @@ inline Eigen::VectorXd recursiveNewtonEulerAlgorithm(
 inline void computeBias(const dyn::structs::Model &model,
                         dyn::structs::Data &data) {
   Eigen::VectorXd dv = Eigen::VectorXd::Zero(model.nv);
-  dv.head(3) = -data.gravity;
   data.b = recursiveNewtonEulerAlgorithm(model, data, dv, false);
 }
 

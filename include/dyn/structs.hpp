@@ -85,7 +85,7 @@ struct Model {
   std::vector<Eigen::Vector<double, 6>> jnt_axis_local;
   std::vector<Eigen::Vector2d> jnt_range;
   std::vector<uint16_t> jnt_qaddr;
-  Eigen::VectorX<uint16_t> jnt_dofadr;
+  std::vector<uint16_t> jnt_dofadr;
 
   std::vector<uint16_t> qpos_jnt_id;
   std::vector<uint16_t> dof_jnt_id;
@@ -119,32 +119,34 @@ struct Data {
   Eigen::Vector3d gravity;
 };
 
-inline structs::Data makeData(const structs::Model &model) {
+inline structs::Data makeData(const structs::Model& model) {
   structs::Data data;
-  data.q.resize(model.nq);
-  data.q.setZero();
-  data.v.resize(model.nv);
-  data.v.setZero();
+  // zero‐init q and v
+  data.q = Eigen::VectorXd::Zero(model.nq);
+  data.v = Eigen::VectorXd::Zero(model.nv);
 
-  data.link_i_pos.resize(model.nl);
-  data.link_i_rot.resize(model.nl);
-  data.link_lvel.resize(model.nl);
-  data.link_avel.resize(model.nl);
-  data.link_I_w.resize(model.nl);
-  data.link_subtree_mass.resize(model.nl);
-  data.link_subtree_com.resize(model.nl);
-  data.link_subtree_I.resize(model.nl);
-  data.link_ext_force.resize(model.nl);
-  data.link_ext_torque.resize(model.nl);
+  // zero‐init link quantities
+  data.link_i_pos.assign(model.nl, Eigen::Vector3d::Zero());
+  data.link_i_rot.assign(model.nl, Eigen::Matrix3d::Zero());
+  data.link_lvel.assign(model.nl, Eigen::Vector3d::Zero());
+  data.link_avel.assign(model.nl, Eigen::Vector3d::Zero());
+  data.link_I_w.assign(model.nl, Eigen::Matrix3d::Zero());
+  data.link_subtree_mass.assign(model.nl, 0.0);
+  data.link_subtree_com.assign(model.nl, Eigen::Vector3d::Zero());
+  data.link_subtree_I.assign(model.nl, Eigen::Matrix3d::Zero());
+  data.link_ext_force.assign(model.nl, Eigen::Vector3d::Zero());
+  data.link_ext_torque.assign(model.nl, Eigen::Vector3d::Zero());
 
-  data.jnt_pos.resize(model.nj);
-  data.jnt_rot.resize(model.nj);
-  data.jnt_lvel.resize(model.nj);
-  data.jnt_avel.resize(model.nj);
-  data.jnt_axis.resize(model.nj);
+  // zero‐init joint quantities
+  data.jnt_pos.assign(model.nj, Eigen::Vector3d::Zero());
+  data.jnt_rot.assign(model.nj, Eigen::Matrix3d::Zero());
+  data.jnt_lvel.assign(model.nj, Eigen::Vector3d::Zero());
+  data.jnt_avel.assign(model.nj, Eigen::Vector3d::Zero());
+  data.jnt_axis.assign(model.nj, Eigen::Matrix<double,6,1>::Zero());
 
-  data.M.resize(model.nv, model.nv);
-  data.b.resize(model.nv);
+  // zero‐init mass matrix, bias vector and gravity
+  data.M   = Eigen::MatrixXd::Zero(model.nv, model.nv);
+  data.b   = Eigen::VectorXd::Zero(model.nv);
   data.gravity.setZero();
 
   return data;
