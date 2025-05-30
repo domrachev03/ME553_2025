@@ -128,11 +128,6 @@ inline structs::Data makeData(const structs::Model &model) {
 
   data.link_i_pos.resize(model.nl);
   data.link_i_rot.resize(model.nl);
-  data.jnt_pos.resize(model.nj);
-  data.jnt_rot.resize(model.nj);
-  data.jnt_lvel.resize(model.nj);
-  data.jnt_avel.resize(model.nj);
-  data.jnt_axis.resize(model.nj);
   data.link_lvel.resize(model.nl);
   data.link_avel.resize(model.nl);
   data.link_I_w.resize(model.nl);
@@ -142,8 +137,15 @@ inline structs::Data makeData(const structs::Model &model) {
   data.link_ext_force.resize(model.nl);
   data.link_ext_torque.resize(model.nl);
 
+  data.jnt_pos.resize(model.nj);
+  data.jnt_rot.resize(model.nj);
+  data.jnt_lvel.resize(model.nj);
+  data.jnt_avel.resize(model.nj);
+  data.jnt_axis.resize(model.nj);
+
   data.M.resize(model.nv, model.nv);
   data.b.resize(model.nv);
+  data.gravity.setZero();
 
   return data;
 }

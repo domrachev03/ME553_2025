@@ -19,7 +19,7 @@ inline Eigen::Matrix<double, 3, 3> rpy2rot(const Eigen::Vector3d &rpy) {
 
   zRot << cos(thZ), -sin(thZ), 0, sin(thZ), cos(thZ), 0, 0, 0, 1;
 
-  rot = xRot * yRot * zRot;
+  rot =zRot * yRot * xRot;
   return rot;
 }
 
