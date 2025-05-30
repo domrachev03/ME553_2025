@@ -357,14 +357,17 @@ inline structs::Model parseURDF(const std::string &urdf,
           ++jnt_dof_index;
         }
       }
-
+      
+      model.jnt_rel_pos[joint_index] =
+          Eigen::Vector3d::Zero(); // Initialize to zero
+      model.jnt_rel_rot[joint_index] = Eigen::Matrix3d::Identity();
+      model.jnt_axis_local[joint_index] = Eigen::Vector<double, 6>::Zero();
+      model.jnt_range[joint_index] = Eigen::Vector2d::Zero();
       for (raisim::TiXmlElement *jnt_child = child->FirstChildElement();
            jnt_child != nullptr; jnt_child = jnt_child->NextSiblingElement()) {
         if (strcmp(jnt_child->Value(), "origin") == 0) {
           char const *xyz = jnt_child->Attribute("xyz");
 
-          model.jnt_rel_pos[joint_index] =
-              Eigen::Vector3d::Zero(); // Initialize to zero
           if (xyz) {
             if (std::sscanf(xyz, "%lf %lf %lf",
                             &model.jnt_rel_pos[joint_index][0],
@@ -395,8 +398,6 @@ inline structs::Model parseURDF(const std::string &urdf,
           const char *lower = jnt_child->Attribute("lower");
           const char *upper = jnt_child->Attribute("upper");
 
-          model.jnt_range[joint_index] =
-              Eigen::Vector2d::Zero(); // Initialize to zero
           if (lower) {
             if (std::sscanf(lower, "%lf", &model.jnt_range[joint_index][0]) !=
                 1) {
@@ -405,7 +406,7 @@ inline structs::Model parseURDF(const std::string &urdf,
             }
           }
           if (upper) {
-            if (std::sscanf(lower, "%lf", &model.jnt_range[joint_index][1]) !=
+            if (std::sscanf(upper, "%lf", &model.jnt_range[joint_index][1]) !=
                 1) {
               throw std::runtime_error(
                   "Invalid limit attribute in URDF for joint " + joint_name);
@@ -424,33 +425,29 @@ inline structs::Model parseURDF(const std::string &urdf,
             }
           }
 
-          // grab the 6D axis slot
-          auto &ax6 = model.jnt_axis_local[joint_index];
-          ax6.setZero();
-
           switch (model.jnt_type[joint_index]) {
           case structs::PRISMATIC:
             // translation only -> first 3 entries
-            ax6.head<3>() = axis3d;
+            model.jnt_axis_local[joint_index].head<3>() = axis3d;
             break;
 
           case structs::REVOLUTE:
             // rotation only -> last 3 entries
-            ax6.tail<3>() = axis3d;
+            model.jnt_axis_local[joint_index].tail<3>() = axis3d;
             break;
 
           case structs::BALL:
             // ball joint -> fill all ones
-            ax6.tail<3>().setOnes();
+            model.jnt_axis_local[joint_index].tail<3>().setOnes();
             break;
 
           case structs::FREE:
             // floating‐base or ball joint -> fill all ones
-            ax6.setOnes();
+            model.jnt_axis_local[joint_index].setOnes();
             break;
 
-          default:
-            // FIXED or unsupported -> leave zero
+          case structs::FIXED:
+            // FIXED-> leave zero
             break;
           }
         }
