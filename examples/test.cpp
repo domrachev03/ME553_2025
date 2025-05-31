@@ -284,24 +284,14 @@ static void testAcceleration(ModelHandles &h) {
   std::vector<Eigen::Vector<double, 6>> jnt_acc =
       dyn::algorithms::acceleration::computeAcceleration(h.dmodel, h.ddata, dv)
           .second;
-  // for (uint16_t jnt_id = 1; jnt_id < h.dmodel.nj; ++jnt_id) {
-  //   std::string jnt_name = h.dmodel.jnt_name[jnt_id];
-  //   // ang_acc = h.ddata.jnt_aacc[jnt_id];
-  //   h.rsys->getFrameAcceleration(jnt_name, tipAcc);
-  //   // h.rsys->getFrameAngularAcceleration(jnt_name, tipAngAcc);
-  //   if (!((jnt_acc[jnt_id].head(3) - tipAcc.e()).norm() < 1e-8)) {
-  //     std::cerr << "Joint " << jnt_id
-  //               << " acceleration mismatch: " << jnt_acc[jnt_id].transpose()
-  //               << " vs" << tipAcc.e().transpose() << "\n";
-  //     throw std::runtime_error("Acceleration test failed");
-  //   }
-  // }
   for (size_t i = 0; i < h.rsys->nbody; ++i) {
     std::string jnt_name = h.dmodel.jnt_name[i];
-    h.rsys->getFrameAcceleration(jnt_name, tipAcc);
+    tipAcc = h.rsys->bodyLinearAcc[i].e();
+    tipAngAcc = h.rsys->bodyAngAcc[i].e();
     bool found = false;
     for (size_t j = 0; j < h.dmodel.nj; ++j) {
-      if ((jnt_acc[j].head(3) - tipAcc.e()).norm() < 1e-8) {
+      if ((jnt_acc[j].head(3) - tipAcc.e()).norm() < 1e-8 &&
+          (jnt_acc[j].tail(3) - tipAngAcc.e()).norm() < 1e-8) {
         std::cout << "[MATCH] Acc Raisim[" << i
                   << "]=" << tipAcc.e().transpose() << " == dyn[" << j
                   << "]=" << jnt_acc[j].head(3).transpose() << "\n";

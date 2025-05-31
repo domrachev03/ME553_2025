@@ -105,6 +105,8 @@ struct Data {
   std::vector<Eigen::Matrix3d> link_subtree_I;
   std::vector<Eigen::Vector3d> link_ext_force;
   std::vector<Eigen::Vector3d> link_ext_torque;
+  std::vector<Eigen::Matrix<double, 6, 6>> link_spatial_I;
+  std::vector<Eigen::Vector<double, 6>> link_spatial_b;
 
   std::vector<Eigen::Vector3d> jnt_pos;
   std::vector<Eigen::Matrix3d> jnt_rot;
@@ -136,6 +138,8 @@ inline structs::Data makeData(const structs::Model &model) {
   data.link_subtree_I.assign(model.nl, Eigen::Matrix3d::Zero());
   data.link_ext_force.assign(model.nl, Eigen::Vector3d::Zero());
   data.link_ext_torque.assign(model.nl, Eigen::Vector3d::Zero());
+  data.link_spatial_I.assign(model.nl, Eigen::Matrix<double, 6, 6>::Zero());
+  data.link_spatial_b.assign(model.nl, Eigen::Vector<double, 6>::Zero());
 
   // zero‐init joint quantities
   data.jnt_pos.assign(model.nj, Eigen::Vector3d::Zero());

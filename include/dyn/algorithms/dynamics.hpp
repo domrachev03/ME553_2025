@@ -14,13 +14,35 @@ namespace algorithms {
 
 namespace dynamics {
 
+inline void computeSingleBodyNewtonEuler(const dyn::structs::Model &model,
+                                         dyn::structs::Data &data) {
+  uint16_t link_id;
+  Eigen::Vector3d r;
+  Eigen::Matrix3d omega_skew, omega_r;
+  for (uint16_t jnt_id = 0; jnt_id < model.nj; ++jnt_id) {
+    link_id = model.jnt_childid[jnt_id];
+    r = data.link_i_pos[link_id] - data.jnt_pos[jnt_id];
+
+    data.link_spatial_I[link_id] = spatial::construct_spatial_inertia(
+        model.link_mass[link_id], data.link_I_w[link_id], r);
+    omega_skew = spatial::skew_matrix(data.jnt_avel[jnt_id]);
+    omega_r = spatial::skew_matrix(r);
+    data.link_spatial_b[link_id].head(3) =
+        model.link_mass[link_id] * omega_skew * omega_skew * r;
+    data.link_spatial_b[link_id].tail(3) =
+        omega_skew *
+        (data.link_I_w[link_id] -
+         model.link_mass[link_id] * omega_r * omega_r) *
+        data.jnt_avel[jnt_id];
+  }
+}
+
 inline Eigen::VectorXd recursiveNewtonEulerAlgorithm(
     const dyn::structs::Model &model, dyn::structs::Data &data,
     const Eigen::VectorXd &dv, const bool &include_external) {
   Eigen::VectorXd tau = Eigen::VectorXd::Zero(model.nv);
   std::vector<Eigen::Vector<double, 6>> net_wrench(
       model.nj, Eigen::Vector<double, 6>::Zero());
-  Eigen::Matrix<double, 6, 6> I_c;
 
   uint16_t link_child_id, link_parent_id, jnt_parent_id, dof_addr;
 
@@ -45,7 +67,7 @@ inline Eigen::VectorXd recursiveNewtonEulerAlgorithm(
 
   Eigen::Vector3d r;
   Eigen::Matrix3d omega_skew, omega_r;
-  Eigen::Vector<double, 6> f, bias;
+  Eigen::Vector<double, 6> f;
   structs::JointType jnt_type;
   for (int16_t jnt_id = model.nj - 1; jnt_id >= 0; --jnt_id) {
     link_child_id = model.jnt_childid[jnt_id];
@@ -55,16 +77,10 @@ inline Eigen::VectorXd recursiveNewtonEulerAlgorithm(
     // First step -- compute tau for current joint
     // Subtree Spatial Inertia
     r = data.link_i_pos[link_child_id] - data.jnt_pos[jnt_id];
-    I_c = spatial::construct_spatial_inertia(model.link_mass[link_child_id],
-                                             data.link_I_w[link_child_id], r);
     omega_skew = spatial::skew_matrix(data.jnt_avel[jnt_id]);
     omega_r = spatial::skew_matrix(r);
-    bias.head(3) = model.link_mass[link_child_id] * omega_skew * omega_skew * r;
-    bias.tail(3) = omega_skew *
-                   (data.link_I_w[link_child_id] -
-                    model.link_mass[link_child_id] * omega_r * omega_r) *
-                   data.jnt_avel[jnt_id];
-    f = I_c * jnt_acc[jnt_id] + bias + net_wrench[jnt_id];
+    f = data.link_spatial_I[link_child_id] * jnt_acc[jnt_id] +
+        data.link_spatial_b[link_child_id] + net_wrench[jnt_id];
     jnt_type = structs::JointType(model.jnt_type[jnt_id]);
 
     dof_addr = model.jnt_dofadr[jnt_id];
