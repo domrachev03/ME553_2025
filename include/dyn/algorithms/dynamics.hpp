@@ -3,6 +3,7 @@
 
 #include "../spatial.hpp"
 #include "../structs.hpp"
+#include "Eigen/src/Core/Matrix.h"
 #include "acceleration.hpp"
 #include <Eigen/Core>
 #include <Eigen/Geometry>
@@ -205,6 +206,145 @@ inline void articulatedBodyAlgorithmHwangbo(const dyn::structs::Model &model,
     // FIXME: something is wrong
     data.dv[j_dof] = u_dot(0, 0);
   }
+}
+
+inline void
+articulatedBodyalgorithmFeatherstone(const dyn::structs::Model &model,
+                                     dyn::structs::Data &data) {
+  // NOTE: In contrast with Featherstone, everything is computed in world frame
+  //       similarly to the most other dyn's code.
+  //       Body inertia and bias are already computed above, so their
+  //       computation is skipped.
+  // Step 1: compute velocity-product accelerations and SRB bias forces
+  std::vector<Eigen::Vector<double, 6>> c(model.nl,
+                                          Eigen::Vector<double, 6>::Zero());
+  Eigen::Vector<double, 6> aa, aa_dot, link_vel;
+  Eigen::Matrix<double, 6, 6> aa_floating = Eigen::Matrix<double, 6, 6>::Zero();
+
+  uint16_t j_id, l_p_id, j_dof;
+  for (uint16_t l_id = 0; l_id < model.nl; ++l_id) {
+    j_id = model.link_parentid[l_id];
+    if (j_id == UINT16_MAX) {
+      // Base link, no parent joint
+      continue;
+    }
+    j_dof = model.jnt_dofadr[j_id];
+    l_p_id = model.jnt_parentid[j_id];
+
+    link_vel.head(3) = data.link_lvel[l_id];
+    link_vel.tail(3) = data.link_avel[l_id];
+    aa = data.jnt_axis[j_id];
+    aa_dot = spatial::cross6(link_vel, aa);
+
+    if (model.jnt_type[j_id] == structs::FREE) {
+      aa_floating.block<3, 3>(0, 0) = data.jnt_rot[j_id];
+      aa_floating.block<3, 3>(3, 3) = data.jnt_rot[j_id];
+      // TODO: is this vector still zero in world frame?
+      // c[l_id] =
+      //     aa_dot.cwiseProduct(data.v.segment<6>(j_dof)) +
+      //     spatial::cross6(link_vel, aa_floating * data.v.segment<6>(j_dof));
+    } else if (model.jnt_type[j_id] == structs::FIXED) {
+    } else {
+      // TODO: is this vector still zero in world frame?
+      // c[l_id] = aa_dot * data.v[j_dof] +
+      //           spatial::cross6(link_vel, aa * data.v[j_dof]);
+      c[l_id] = aa_dot * data.v[j_dof];
+      std::cout << "Link " << l_id << " c: " << c[l_id].transpose() << "\n";
+    }
+  }
+
+  // Step 2: calculate articulated body inertia and bias
+  std::vector<Eigen::Matrix<double, 6, 6>> I_A = data.link_spatial_I;
+  std::vector<Eigen::Vector<double, 6>> b_A = data.link_spatial_b;
+
+  Eigen::Matrix<double, 6, 6> I_a;
+
+  for (int16_t l_id = model.nl - 1; l_id >= 0; --l_id) {
+    j_id = model.link_parentid[l_id];
+    if (j_id == UINT16_MAX) {
+      // Base link, no parent joint
+      continue;
+    }
+    l_p_id = model.jnt_parentid[j_id];
+    j_dof = model.jnt_dofadr[j_id];
+
+    aa = data.jnt_axis[j_id];
+    if (model.jnt_type[j_id] == structs::FIXED) {
+      I_A[l_p_id] += I_A[l_id];
+      b_A[l_p_id] += b_A[l_id] + I_A[l_id] * c[l_id];
+    } else if (model.jnt_type[j_id] == structs::FREE) {
+      // FIXME: bruh...
+      aa_floating.block<3, 3>(0, 0) = data.jnt_rot[j_id];
+      aa_floating.block<3, 3>(3, 3) = data.jnt_rot[j_id];
+
+      Eigen::Matrix<double, 6, 6> SIS_inv =
+          (aa_floating.transpose() * I_A[l_id] * aa_floating).inverse();
+      Eigen::Matrix<double, 6, 6> IS_SIS_inv =
+          I_A[l_id] * aa_floating * SIS_inv;
+
+      I_a = I_A[l_id] - IS_SIS_inv * aa_floating.transpose() * I_A[l_id];
+      I_A[l_p_id] += I_a;
+      b_A[l_p_id] += b_A[l_id] + I_a * c[l_id] +
+                     IS_SIS_inv * (data.tau.segment<6>(j_dof) -
+                                   aa_floating.transpose() * b_A[l_id]);
+    } else {
+      auto SIS_inv = (aa.transpose() * I_A[l_id] * aa).inverse();
+      auto IS_SIS_inv = I_A[l_id] * aa * SIS_inv;
+
+      I_a = I_A[l_id] - IS_SIS_inv * aa.transpose() * I_A[l_id];
+      I_A[l_p_id] += I_a;
+      b_A[l_p_id] +=
+          b_A[l_id] + I_a * c[l_id] +
+          IS_SIS_inv * (data.tau[j_dof] - aa.transpose() * b_A[l_id]);
+    }
+  }
+
+  // Step 3: compute joint torques
+  Eigen::VectorXd dv = Eigen::VectorXd::Zero(model.nv);
+  std::vector<Eigen::Vector<double, 6>> link_acc(
+      model.nl, Eigen::Vector<double, 6>::Zero());
+  link_acc[0].head(3) = -data.gravity;
+
+  for (uint16_t l_id = 0; l_id < model.nl; ++l_id) {
+    uint16_t j_id = model.link_parentid[l_id];
+    if (j_id == UINT16_MAX) {
+      // Base link, no parent joint
+      continue;
+    }
+    uint16_t l_p_id = model.jnt_parentid[j_id];
+    uint16_t j_dof = model.jnt_dofadr[j_id];
+
+    if (model.jnt_type[j_id] == structs::FIXED) {
+      link_acc[l_id] = link_acc[l_p_id];
+    } else if (model.jnt_type[j_id] == structs::FREE) {
+      // FIXME: bruh...
+      aa_floating.block<3, 3>(0, 0) = data.jnt_rot[j_id];
+      aa_floating.block<3, 3>(3, 3) = data.jnt_rot[j_id];
+
+      Eigen::Matrix<double, 6, 6> SIS_inv =
+          (aa_floating.transpose() * I_A[l_id] * aa_floating).inverse();
+      Eigen::Matrix<double, 6, 6> IS_SIS_inv =
+          I_A[l_id] * aa_floating * SIS_inv;
+
+      dv.segment<6>(j_dof) = SIS_inv * (data.tau.segment<6>(j_dof) -
+                                        aa_floating.transpose() * I_A[l_id] *
+                                            (link_acc[l_p_id] + c[l_id]) -
+                                        aa_floating.transpose() * b_A[l_id]);
+      link_acc[l_id] =
+          link_acc[l_p_id] + c[l_id] + aa_floating * dv.segment<6>(j_dof);
+    } else {
+      aa = data.jnt_axis[j_id];
+      auto SIS_inv = (aa.transpose() * I_A[l_id] * aa).inverse();
+
+      dv[j_dof] = (SIS_inv *
+                   (data.tau[j_dof] -
+                    aa.transpose() * I_A[l_id] * (link_acc[l_p_id] + c[l_id]) -
+                    aa.transpose() * b_A[l_id]))(0, 0);
+      link_acc[l_id] = link_acc[l_p_id] + c[l_id] + aa * dv[j_dof];
+    }
+  }
+
+  data.dv = dv;
 }
 
 } // namespace dynamics

@@ -28,7 +28,7 @@ static std::filesystem::path getURDFPath(const std::string &name) {
   else if (name == "minicheetah")
     return base / "mini_cheetah" / "urdf" / "cheetah.urdf";
   else if (name == "kinova")
-    return base / "kinova" / "robot.urdf";
+    return base / "kinova" / "robot_no_fixed.urdf";
   else if (name == "cartpole")
     return base / "cartPole" / "cartpole.urdf";
   else
@@ -402,6 +402,7 @@ int main(int argc, char **argv) {
     auto tau = randTorque(
         h.rsys, std::chrono::system_clock::now().time_since_epoch().count());
     // v = Eigen::VectorXd::Zero(h.rsys->getDOF());
+    // tau = Eigen::VectorXd::Zero(h.rsys->getDOF());
     h.rsys->setState(q, v);
     h.rsys->setGeneralizedForce(tau);
     h.server->focusOn(h.rsys);
