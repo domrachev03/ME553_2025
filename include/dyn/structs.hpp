@@ -94,6 +94,8 @@ struct Model {
 struct Data {
   Eigen::VectorXd q;
   Eigen::VectorXd v;
+  Eigen::VectorXd tau;
+  Eigen::VectorXd dv;
 
   std::vector<Eigen::Vector3d> link_i_pos;
   std::vector<Eigen::Matrix3d> link_i_rot;
@@ -103,10 +105,11 @@ struct Data {
   std::vector<double> link_subtree_mass;
   std::vector<Eigen::Vector3d> link_subtree_com;
   std::vector<Eigen::Matrix3d> link_subtree_I;
-  std::vector<Eigen::Vector3d> link_ext_force;
-  std::vector<Eigen::Vector3d> link_ext_torque;
+  std::vector<Eigen::Vector<double, 6>> link_ext_wrench;
   std::vector<Eigen::Matrix<double, 6, 6>> link_spatial_I;
   std::vector<Eigen::Vector<double, 6>> link_spatial_b;
+  std::vector<Eigen::Matrix<double, 6, 6>> articulated_M;
+  std::vector<Eigen::Vector<double, 6>> articulated_b;
 
   std::vector<Eigen::Vector3d> jnt_pos;
   std::vector<Eigen::Matrix3d> jnt_rot;
@@ -126,6 +129,8 @@ inline structs::Data makeData(const structs::Model &model) {
   // zero‐init q and v
   data.q = Eigen::VectorXd::Zero(model.nq);
   data.v = Eigen::VectorXd::Zero(model.nv);
+  data.tau = Eigen::VectorXd::Zero(model.nv);
+  data.dv = Eigen::VectorXd::Zero(model.nv);
 
   // zero‐init link quantities
   data.link_i_pos.assign(model.nl, Eigen::Vector3d::Zero());
@@ -136,10 +141,11 @@ inline structs::Data makeData(const structs::Model &model) {
   data.link_subtree_mass.assign(model.nl, 0.0);
   data.link_subtree_com.assign(model.nl, Eigen::Vector3d::Zero());
   data.link_subtree_I.assign(model.nl, Eigen::Matrix3d::Zero());
-  data.link_ext_force.assign(model.nl, Eigen::Vector3d::Zero());
-  data.link_ext_torque.assign(model.nl, Eigen::Vector3d::Zero());
+  data.link_ext_wrench.assign(model.nl, Eigen::Vector<double, 6>::Zero());
   data.link_spatial_I.assign(model.nl, Eigen::Matrix<double, 6, 6>::Zero());
   data.link_spatial_b.assign(model.nl, Eigen::Vector<double, 6>::Zero());
+  data.articulated_M.assign(model.nl, Eigen::Matrix<double, 6, 6>::Zero());
+  data.articulated_b.assign(model.nl, Eigen::Vector<double, 6>::Zero());
 
   // zero‐init joint quantities
   data.jnt_pos.assign(model.nj, Eigen::Vector3d::Zero());
