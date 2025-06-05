@@ -266,7 +266,7 @@ articulatedBodyalgorithmFeatherstone(const dyn::structs::Model &model,
     link_vel.tail(3) = data.link_avel[l_id];
     aa = data.jnt_axis[j_id];
     // FIXME: wrong velocity
-    aa_dot = spatial::cross6(link_vel, aa);
+    // aa_dot = spatial::cross6(link_vel, aa);
 
     if (model.jnt_type[j_id] == structs::FREE) {
       aa_floating.block<3, 3>(0, 0) = data.jnt_rot[j_id];

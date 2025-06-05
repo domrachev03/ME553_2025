@@ -1347,6 +1347,7 @@ computeGeneralizedAcceleration(const Eigen::VectorXd &gc,
   // Updating the model
   data.q = gc;
   data.v = gv;
+  data.tau = gf;
   data.gravity = Eigen::Vector3d(0, 0, -9.81);
   std::cout << "Starting update" << std::endl;
   dyn::algorithms::update(model, data);

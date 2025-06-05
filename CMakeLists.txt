@@ -6,8 +6,8 @@ include_directories(include) # Add this line
 
 include(cmake/helper.cmake)
 
-# add_compile_options(-fsanitize=address)
-# add_link_options(-fsanitize=address)
+add_compile_options(-fsanitize=address)
+add_link_options(-fsanitize=address)
 
 # exercise
 # create_executable(exercise1 src/exercise1.cpp)
