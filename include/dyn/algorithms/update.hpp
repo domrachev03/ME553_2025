@@ -21,7 +21,7 @@ inline void update(const dyn::structs::Model &model, dyn::structs::Data &data) {
 
   dynamics::computeSingleBodyNewtonEuler(model, data);
   dynamics::computeBias(model, data);
-  dynamics::articulatedBodyAlgorithmHwangbo(model, data);
+  dynamics::articulatedBodyAlgorithm(model, data);
 }
 } // namespace algorithms
 } // namespace dyn

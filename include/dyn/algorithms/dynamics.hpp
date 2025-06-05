@@ -109,8 +109,8 @@ inline void computeBias(const dyn::structs::Model &model,
   data.b = recursiveNewtonEulerAlgorithm(model, data, dv, false);
 }
 
-inline void articulatedBodyAlgorithmHwangbo(const dyn::structs::Model &model,
-                                            dyn::structs::Data &data) {
+inline void articulatedBodyAlgorithm(const dyn::structs::Model &model,
+                                     dyn::structs::Data &data) {
   data.articulated_M = data.link_spatial_M;
   data.articulated_b = data.link_spatial_b;
 

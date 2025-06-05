@@ -49,24 +49,6 @@ inline Eigen::Matrix3d skew_matrix(const Eigen::Vector3d &v) {
   return skew;
 }
 
-inline Eigen::Vector<double, 6> cross6(const Eigen::Vector<double, 6> &a,
-                                       const Eigen::Vector<double, 6> &b) {
-  Eigen::Vector<double, 6> res;
-  res.head<3>() = a.head<3>().cross(b.head<3>());
-  res.tail<3>() =
-      a.head<3>().cross(b.tail<3>()) + a.tail<3>().cross(b.head<3>());
-  return res;
-}
-
-inline Eigen::Vector<double, 6> cross_star6(const Eigen::Vector<double, 6> &a,
-                                            const Eigen::Vector<double, 6> &b) {
-  Eigen::Vector<double, 6> res;
-  res.head<3>() =
-      a.head<3>().cross(b.head<3>()) + a.tail<3>().cross(b.tail<3>());
-  res.tail<3>() = a.head<3>().cross(b.tail<3>());
-  return res;
-}
-
 inline Eigen::Matrix3d move_I(const Eigen::Matrix3d &I,
                               const Eigen::Vector3d &r, const double &m) {
   return (I + m * (r.squaredNorm() * Eigen::Matrix3d::Identity() -
