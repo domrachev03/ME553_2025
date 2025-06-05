@@ -5,8 +5,9 @@ set(CMAKE_CXX_STANDARD 17)
 include_directories(include) # Add this line
 
 include(cmake/helper.cmake)
-add_compile_options(-fsanitize=address)
-add_link_options(-fsanitize=address)
+
+# add_compile_options(-fsanitize=address)
+# add_link_options(-fsanitize=address)
 
 # exercise
 # create_executable(exercise1 src/exercise1.cpp)
@@ -23,10 +24,11 @@ add_link_options(-fsanitize=address)
 
 # # custom examples
 create_executable(test examples/test.cpp)
-create_executable(forward_kinematics_panda examples/forward_kinematics_panda.cpp)
-create_executable(forward_kinematics_minicheetah examples/forward_kinematics_minicheetah.cpp)
-create_executable(forward_velocity_panda examples/forward_velocity_panda.cpp)
-create_executable(forward_velocity_minicheetah examples/forward_velocity_minicheetah.cpp)
-create_executable(inertia_world_minicheetah examples/inertia_world_minicheetah.cpp)
+
+# create_executable(forward_kinematics_panda examples/forward_kinematics_panda.cpp)
+# create_executable(forward_kinematics_minicheetah examples/forward_kinematics_minicheetah.cpp)
+# create_executable(forward_velocity_panda examples/forward_velocity_panda.cpp)
+# create_executable(forward_velocity_minicheetah examples/forward_velocity_minicheetah.cpp)
+# create_executable(inertia_world_minicheetah examples/inertia_world_minicheetah.cpp)
 
 # # exam

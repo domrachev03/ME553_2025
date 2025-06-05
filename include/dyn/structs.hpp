@@ -91,6 +91,17 @@ struct Model {
   std::vector<uint16_t> dof_jnt_id;
 };
 
+struct AbaData {
+  Eigen::Matrix<double, 6, 6> XT, Ma, XMXT;
+  Eigen::Matrix<double, 1, 6> STMaXT, ST, SdotT, STMa, STMaSinvSTMaXT;
+  Eigen::Matrix<double, 6, 1> Pa, V, acc, SdotUpXdotTV;
+  Eigen::Matrix<double, 3, 6> STMaXT3, ST3, SdotT3, STMa3, STMaSinvSTMaXT3;
+  Eigen::Matrix<double, 3, 3> STMaSinv3, STMaS3, joint2Com_w_Skew;
+  Eigen::Matrix<double, 3, 1> udotExpectAccTerm3;
+  double STMaSinv, udotExpectAccTerm;
+  Eigen::Matrix<double, 3, 6> XcT;
+};
+
 struct Data {
   Eigen::VectorXd q;
   Eigen::VectorXd v;
@@ -106,7 +117,7 @@ struct Data {
   std::vector<Eigen::Vector3d> link_subtree_com;
   std::vector<Eigen::Matrix3d> link_subtree_I;
   std::vector<Eigen::Vector<double, 6>> link_ext_wrench;
-  std::vector<Eigen::Matrix<double, 6, 6>> link_spatial_I;
+  std::vector<Eigen::Matrix<double, 6, 6>> link_spatial_M;
   std::vector<Eigen::Vector<double, 6>> link_spatial_b;
   std::vector<Eigen::Matrix<double, 6, 6>> articulated_M;
   std::vector<Eigen::Vector<double, 6>> articulated_b;
@@ -122,6 +133,8 @@ struct Data {
   Eigen::MatrixXd M;
   Eigen::VectorXd b;
   Eigen::Vector3d gravity;
+
+  std::vector<AbaData> aba_data;
 };
 
 inline structs::Data makeData(const structs::Model &model) {
@@ -142,7 +155,7 @@ inline structs::Data makeData(const structs::Model &model) {
   data.link_subtree_com.assign(model.nl, Eigen::Vector3d::Zero());
   data.link_subtree_I.assign(model.nl, Eigen::Matrix3d::Zero());
   data.link_ext_wrench.assign(model.nl, Eigen::Vector<double, 6>::Zero());
-  data.link_spatial_I.assign(model.nl, Eigen::Matrix<double, 6, 6>::Zero());
+  data.link_spatial_M.assign(model.nl, Eigen::Matrix<double, 6, 6>::Zero());
   data.link_spatial_b.assign(model.nl, Eigen::Vector<double, 6>::Zero());
   data.articulated_M.assign(model.nl, Eigen::Matrix<double, 6, 6>::Zero());
   data.articulated_b.assign(model.nl, Eigen::Vector<double, 6>::Zero());
@@ -153,6 +166,36 @@ inline structs::Data makeData(const structs::Model &model) {
   data.jnt_lvel.assign(model.nj, Eigen::Vector3d::Zero());
   data.jnt_avel.assign(model.nj, Eigen::Vector3d::Zero());
   data.jnt_axis.assign(model.nj, Eigen::Matrix<double, 6, 1>::Zero());
+
+  data.aba_data.assign(model.nl, AbaData());
+  for (int16_t i = 0; i < model.nl; ++i) {
+    data.aba_data[i].XT = Eigen::Matrix<double, 6, 6>::Zero();
+    data.aba_data[i].Ma = Eigen::Matrix<double, 6, 6>::Zero();
+    data.aba_data[i].XMXT = Eigen::Matrix<double, 6, 6>::Zero();
+    data.aba_data[i].STMaXT = Eigen::Matrix<double, 1, 6>::Zero();
+    data.aba_data[i].ST = Eigen::Matrix<double, 1, 6>::Zero();
+    data.aba_data[i].SdotT = Eigen::Matrix<double, 1, 6>::Zero();
+    data.aba_data[i].STMa = Eigen::Matrix<double, 1, 6>::Zero();
+    data.aba_data[i].STMaSinvSTMaXT =
+        Eigen::Matrix<double, 1, 6>::Zero(); // TODO: check size
+    data.aba_data[i].STMaXT3 = Eigen::Matrix<double, 3, 6>::Zero();
+    data.aba_data[i].ST3 = Eigen::Matrix<double, 3, 6>::Zero();
+    data.aba_data[i].SdotT3 = Eigen::Matrix<double, 3, 6>::Zero();
+    data.aba_data[i].STMa3 = Eigen::Matrix<double, 3, 6>::Zero();
+    data.aba_data[i].STMaSinvSTMaXT3 =
+        Eigen::Matrix<double, 3, 6>::Zero(); // TODO: check size
+    data.aba_data[i].Pa = Eigen::Matrix<double, 6, 1>::Zero();
+    data.aba_data[i].V = Eigen::Matrix<double, 6, 1>::Zero();
+    data.aba_data[i].acc = Eigen::Matrix<double, 6, 1>::Zero();
+    data.aba_data[i].SdotUpXdotTV = Eigen::Matrix<double, 6, 1>::Zero();
+    data.aba_data[i].STMaSinv3 = Eigen::Matrix<double, 3, 3>::Zero();
+    data.aba_data[i].STMaS3 = Eigen::Matrix<double, 3, 3>::Zero();
+    data.aba_data[i].joint2Com_w_Skew = Eigen::Matrix<double, 3, 3>::Zero();
+    data.aba_data[i].udotExpectAccTerm3 = Eigen::Matrix<double, 3, 1>::Zero();
+    data.aba_data[i].STMaSinv = 0.0;
+    data.aba_data[i].udotExpectAccTerm = 0.0;
+    data.aba_data[i].XcT = Eigen::Matrix<double, 3, 6>::Zero();
+  }
 
   // zero‐init mass matrix, bias vector and gravity
   data.M = Eigen::MatrixXd::Zero(model.nv, model.nv);

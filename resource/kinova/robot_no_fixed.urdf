@@ -85,5 +85,34 @@
     <dynamics damping="0.0" friction="0.0"/>
   </joint>
 
+ <link name="kinova_link_3">
+    <visual>
+      <geometry>
+        <mesh filename="../meshes/forearm.dae"/>
+      </geometry>
+      <material name="carbon_fiber">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1"/>
+      </material>
+    </visual>
+    <visual>
+      <geometry>
+        <mesh filename="../meshes/ring_big.STL"/>
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="0.6763"/>
+      <origin xyz="0 0.081 -0.0086"/>
+      <inertia ixx="0.00142022431908" ixy="0" ixz="0" iyy="0.000304335" iyz="0" izz="0.00142022431908"/>
+    </inertial>
+  </link>
 
+  <joint name="kinova_joint_3" type="revolute">
+    <parent link="kinova_link_2"/>
+    <child link="kinova_link_3"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="30.5" lower="-62.8318530718" upper="62.8318530718" velocity="15"/>
+    <!-- limit effort also defines torque limit and freeze controller gains -->
+    <origin rpy="0 3.14159265359 0" xyz="0 -0.410 0"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
 </robot>

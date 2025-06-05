@@ -1,5 +1,4 @@
 #include "dyn/utils.hpp"
-#include "raisim/RaisimServer.hpp"
 #include <cassert>
 #include <chrono>
 #include <dyn/algorithms/update.hpp>
@@ -7,6 +6,7 @@
 #include <dyn/structs.hpp>
 #include <filesystem>
 #include <iostream>
+#include <raisim/RaisimServer.hpp>
 #include <raisim/math.hpp>
 #include <random>
 #include <string>
@@ -28,7 +28,7 @@ static std::filesystem::path getURDFPath(const std::string &name) {
   else if (name == "minicheetah")
     return base / "mini_cheetah" / "urdf" / "cheetah.urdf";
   else if (name == "kinova")
-    return base / "kinova" / "robot_no_fixed.urdf";
+    return base / "kinova" / "robot.urdf";
   else if (name == "cartpole")
     return base / "cartPole" / "cartpole.urdf";
   else
@@ -323,7 +323,7 @@ static void testAcceleration(ModelHandles &h) {
 static void testBias(ModelHandles &h) {
   const double tol = 1e-9;
   Eigen::VectorXd b_dyn = h.ddata.b;
-  auto b_rai = h.rsys->getNonlinearities({0, 0, -9.81}).e();
+  auto b_rai = h.rsys->getNonlinearities().e();
   for (int i = 0; i < b_dyn.size(); ++i) {
     if (std::abs(b_dyn[i] - b_rai[i]) > tol) {
       std::cerr << "Bias mismatch at index " << i << ": " << b_dyn[i] << " vs "
@@ -337,27 +337,134 @@ static void testBias(ModelHandles &h) {
 // Test 9: articulated body inertia
 static void testArticualtedBodyInertia(ModelHandles &h) {
   const double tol = 1e-9;
-  // Dyn mass matrix and bias
   auto dyn_M = h.ddata.articulated_M;
   auto dyn_b = h.ddata.articulated_b;
 
-  for (int i = 1; i < h.rsys->nbody; ++i) {
-    auto rai_M = h.rsys->ad_[i].Ma;
-    auto rai_b = h.rsys->ad_[i].Pa;
-    if ((rai_M - dyn_M[i]).norm() > tol) {
-      std::cerr << "Articulated body inertia mismatch at index " << i
-                << "\n === Dyn === \n"
-                << dyn_M[i] << "\n === Rai === \n"
-                << rai_M << "\n";
-      // throw std::runtime_error("Forward dynamics test failed");
-    }
-    if ((rai_b - dyn_b[i]).norm() > tol) {
-      std::cerr << "Articulated body bias mismatch at index " << i
-                << ": dyn=" << dyn_b[i].transpose()
-                << " vs rai=" << rai_b.transpose() << "\n";
-      // throw std::runtime_error("Forward dynamics test failed");
-    }
+  Eigen::VectorXd u_dot(h.dmodel.nv);
+  h.rsys->articulatedBodyAlgorithm({0, 0, -9.81}, u_dot);
+
+  int N = h.dmodel.nl;
+
+  // compare articulated inertia Ma
+  for (int i = 1; i < N; ++i) {
+    auto rai_M = h.rsys->Ma[i - 1];
+    bool match = (rai_M - dyn_M[i]).norm() < tol;
+    std::cout << (match ? "[MATCH]" : "[MISMATCH]") << " Ma[" << i << "]\n";
+    std::cout << " dyn:\n" << dyn_M[i] << "\n";
+    std::cout << " rai:\n" << rai_M << "\n";
   }
+  std::cout << "-----------------------\n";
+
+  // compare articulated bias Pa
+  for (int i = 1; i < N; ++i) {
+    auto rai_b = h.rsys->Pa[i - 1];
+    bool match = (rai_b - dyn_b[i]).norm() < tol;
+    std::cout << (match ? "[MATCH]" : "[MISMATCH]") << " Pa[" << i << "]\n";
+    std::cout << " dyn: " << dyn_b[i].transpose() << "\n";
+    std::cout << " rai: " << rai_b.transpose() << "\n";
+  }
+  std::cout << "-----------------------\n";
+
+  // compare aba_data.ST
+  for (int i = 1; i < N; ++i) {
+    const auto &aba = h.ddata.aba_data[i];
+    auto rsys_ST = h.rsys->ST[i - 1];
+    bool match = (aba.ST - rsys_ST).norm() < tol;
+    std::cout << (match ? "[MATCH]" : "[MISMATCH]") << " ST[" << i << "]\n";
+    std::cout << " dyn: " << aba.ST.transpose() << "\n";
+    std::cout << " rai: " << rsys_ST.transpose() << "\n";
+  }
+  std::cout << "-----------------------\n";
+
+  // compare aba_data.SdotT3
+  for (int i = 1; i < N; ++i) {
+    const auto &aba = h.ddata.aba_data[i];
+    auto rsys = h.rsys->SdotT[i - 1];
+    bool match = (aba.SdotT - rsys).norm() < tol;
+    std::cout << (match ? "[MATCH]" : "[MISMATCH]") << " SdotT[" << i << "]\n";
+    std::cout << " dyn: " << aba.SdotT << "\n";
+    std::cout << " rai: " << rsys << "\n";
+  }
+  std::cout << "-----------------------\n";
+
+  // compare aba_data.STMa
+  for (int i = 1; i < N; ++i) {
+    const auto &aba = h.ddata.aba_data[i];
+    auto rsys = h.rsys->STMa[i - 1];
+    bool match = (aba.STMa - rsys).norm() < tol;
+    std::cout << (match ? "[MATCH]" : "[MISMATCH]") << " STMa[" << i << "]\n";
+    std::cout << " dyn: " << aba.STMa.transpose() << "\n";
+    std::cout << " rai: " << rsys.transpose() << "\n";
+  }
+  std::cout << "-----------------------\n";
+
+  // compare aba_data.STMaSinv
+  for (int i = 1; i < N; ++i) {
+    const auto &aba = h.ddata.aba_data[i];
+    double rsys = h.rsys->STMaSinv[i - 1];
+    bool match = std::abs(aba.STMaSinv - rsys) < tol;
+    std::cout << (match ? "[MATCH]" : "[MISMATCH]") << " STMaSinv[" << i
+              << "]\n";
+    std::cout << " dyn: " << aba.STMaSinv << "\n";
+    std::cout << " rai: " << rsys << "\n";
+  }
+  std::cout << "-----------------------\n";
+
+  // compare aba_data.XT
+  for (int i = 1; i < N; ++i) {
+    const auto &aba = h.ddata.aba_data[i];
+    auto rsys = h.rsys->XT[i - 1];
+    bool match = (aba.XT - rsys).norm() < tol;
+    std::cout << (match ? "[MATCH]" : "[MISMATCH]") << " XT[" << i << "]\n";
+    std::cout << " dyn:\n" << aba.XT << "\n";
+    std::cout << " rai:\n" << rsys << "\n";
+  }
+  std::cout << "-----------------------\n";
+
+  // compare aba_data.SdotUpXdotTV
+  for (int i = 1; i < N; ++i) {
+    const auto &aba = h.ddata.aba_data[i];
+    auto rsys = h.rsys->SdotUpXdotTV[i - 1];
+    bool match = (aba.SdotUpXdotTV - rsys).norm() < tol;
+    std::cout << (match ? "[MATCH]" : "[MISMATCH]") << " SdotUpXdotTV[" << i
+              << "]\n";
+    std::cout << " dyn: " << aba.SdotUpXdotTV.transpose() << "\n";
+    std::cout << " rai: " << rsys.transpose() << "\n";
+  }
+  std::cout << "-----------------------\n";
+
+  // compare aba_data.acc vs bodyLinearAcc & bodyAngAcc
+  for (int i = 1; i < N; ++i) {
+    const auto &aba = h.ddata.aba_data[i];
+    Eigen::Vector3d lin = h.rsys->bodyLinearAcc[i - 1].e();
+    Eigen::Vector3d ang = h.rsys->bodyAngAcc[i - 1].e();
+    bool match_lin = (aba.acc.head<3>() - lin).norm() < tol;
+    bool match_ang = (aba.acc.tail<3>() - ang).norm() < tol;
+    std::cout << ((match_lin && match_ang) ? "[MATCH]" : "[MISMATCH]")
+              << " acc[" << i << "]\n";
+    std::cout << " dyn lin/ang: " << aba.acc.head<3>().transpose() << " / "
+              << aba.acc.tail<3>().transpose() << "\n";
+    std::cout << " rai lin/ang: " << lin.transpose() << " / " << ang.transpose()
+              << "\n";
+  }
+  std::cout << "-----------------------\n";
+
+  // compare aba_data.udotExpectAccTerm vs u_dot from Raisim
+  for (int i = 1; i < N; ++i) {
+    uint16_t j_id = h.dmodel.link_parentid[i];
+    if (j_id == UINT16_MAX)
+      continue;
+    uint16_t j_dof = h.dmodel.jnt_dofadr[j_id];
+    double dyn_ud = h.ddata.aba_data[i].udotExpectAccTerm;
+    double rai_ud = u_dot[j_dof];
+    bool match = std::abs(dyn_ud - rai_ud) < tol;
+    std::cout << (match ? "[MATCH]" : "[MISMATCH]") << " udotExpectAccTerm["
+              << i << "]\n";
+    std::cout << " dyn: " << dyn_ud << "\n";
+    std::cout << " rai: " << rai_ud << "\n";
+  }
+  std::cout << "-----------------------\n";
+
   std::cout << "[PASS] Articulated body inertia\n";
 }
 
@@ -369,7 +476,7 @@ static void testForwardDynamics(ModelHandles &h) {
   Eigen::VectorXd b_dyn = h.ddata.b;
   // Raisim mass matrix and bias (nonlinearities)
   Eigen::MatrixXd M_rai = h.rsys->M_.e();
-  Eigen::VectorXd b_rai = h.rsys->getNonlinearities({0, 0, -9.81}).e();
+  Eigen::VectorXd b_rai = h.rsys->getNonlinearities().e();
 
   Eigen::VectorXd a_rai = M_rai.inverse() * (h.ddata.tau - b_rai);
 
@@ -410,9 +517,7 @@ int main(int argc, char **argv) {
     h.rsys->updateKinematics();
     h.world->integrate1();
     auto M = h.rsys->getMassMatrix();
-    h.rsys->setComputeInverseDynamics(true);
-    h.rsys->getNonlinearities({0, 0, -9.81});
-    h.rsys->articulatedBodyAlgorithm({0, 0, -9.81}, 0.0);
+    h.rsys->getNonlinearities();
 
     h.ddata.q = q;
     h.ddata.v = v;
@@ -431,7 +536,7 @@ int main(int argc, char **argv) {
     testMassMatrix(h);
     testAcceleration(h);
     testBias(h);
-    // testArticualtedBodyInertia(h);
+    testArticualtedBodyInertia(h);
     testForwardDynamics(h);
   } catch (const std::exception &e) {
     std::cerr << "Error: " << e.what() << "\n";
