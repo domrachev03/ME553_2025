@@ -335,32 +335,6 @@ static void testBias(ModelHandles &h, const double g) {
   std::cout << "[PASS] bias\n";
 }
 
-// Test 8.1: compare articulated body inertias against Raisim
-// static void testArticulatedMatrices(ModelHandles &h) {
-//   const double tol = 1e-9;
-//   // enable inverse dynamics and run ABA in Raisim
-//   h.rsys->setComputeInverseDynamics(true);
-//   h.rsys->articulatedBodyAlgorithm(h.ddata.gravity, 0.0);
-
-//   auto &dyn_M = h.ddata.articulated_M;
-//   auto &dyn_b = h.ddata.articulated_b;
-//   for (size_t i = 0; i < dyn_M.size(); ++i) {
-//     auto &rai_M = h.rsys->ad_[i].Ma; // Raisim’s ABA inertia vector
-//     auto &rai_b = h.rsys->ad_[i].Pa; // Raisim’s ABA bias vector
-//     bool match = (dyn_M[i] - rai_M).norm() < tol;
-//     std::cout << (match ? "[MATCH]" : "[MISMATCH]") << " articulated_M[" << i
-//               << "]\n";
-//     std::cout << " dyn:\n" << dyn_M[i] << "\n";
-//     std::cout << " rai:\n" << rai_M << "\n";
-
-//     std::cout << (match ? "[MATCH]" : "[MISMATCH]") << " articulated_b[" << i
-//               << "]\n";
-//     std::cout << " dyn:\n" << dyn_b[i].transpose() << "\n";
-//     std::cout << " rai:\n" << rai_b.transpose() << "\n";
-//   }
-//   std::cout << "[PASS] articulated matrices\n";
-// }
-
 // Test 9: fwd dynamics
 static void testForwardDynamics(ModelHandles &h, const double g) {
   const double tol = 1e-9; // Dyn mass matrix and bias
@@ -430,7 +404,6 @@ int main(int argc, char **argv) {
     testMassMatrix(h);
     testAcceleration(h);
     testBias(h, g);
-    // testArticulatedMatrices(h);
     testForwardDynamics(h, g);
   } catch (const std::exception &e) {
     std::cerr << "Error: " << e.what() << "\n";

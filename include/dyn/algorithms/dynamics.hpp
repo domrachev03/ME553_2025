@@ -113,14 +113,23 @@ inline void articulatedBodyAlgorithmHwangbo(const dyn::structs::Model &model,
                                             dyn::structs::Data &data) {
   data.articulated_M = data.link_spatial_M;
   data.articulated_b = data.link_spatial_b;
+
+  uint16_t j_id, l_p_id, j_dof;
+  Eigen::Vector<double, 6> aa;
+  Eigen::Vector<double, 3> r, v;
+
+  std::vector<Eigen::Vector<double, 6>> aa_dot(model.nl);
+  std::vector<Eigen::Matrix<double, 6, 6>> X_bp(model.nl), X_bp_dot(model.nl);
+  std::vector<double> SMS_inv(model.nl);
+
   for (int16_t l_id = model.nl - 1; l_id >= 0; --l_id) {
-    uint16_t j_id = model.link_parentid[l_id];
+    j_id = model.link_parentid[l_id];
     if (j_id == UINT16_MAX) {
       // Base link, no parent joint
       continue;
     }
-    uint16_t l_p_id = model.jnt_parentid[j_id];
-    uint16_t j_dof = model.jnt_dofadr[j_id];
+    l_p_id = model.jnt_parentid[j_id];
+    j_dof = model.jnt_dofadr[j_id];
 
     Eigen::Vector<double, 6> link_v = Eigen::Vector<double, 6>::Zero();
     link_v.head(3) = data.link_lvel[l_p_id];
@@ -129,78 +138,69 @@ inline void articulatedBodyAlgorithmHwangbo(const dyn::structs::Model &model,
     jnt_v.head(3) = data.jnt_lvel[j_id];
     jnt_v.tail(3) = data.jnt_avel[j_id];
 
-    Eigen::Vector<double, 6> aa = data.jnt_axis[j_id];
-    data.aba_data[l_id].ST = aa.transpose();
-
-    Eigen::Vector<double, 6> aa_dot = aa;
-    aa_dot.head(3) = spatial::skew_matrix(data.jnt_avel[j_id]) * aa_dot.head(3);
-    aa_dot.tail(3) = spatial::skew_matrix(data.jnt_avel[j_id]) * aa_dot.tail(3);
-    data.aba_data[l_id].SdotT = aa_dot.transpose();
-
-    data.aba_data[l_id].STMa = aa.transpose() * data.articulated_M[l_id];
-    Eigen::Matrix<double, 6, 1> S_SMS_inv =
-        aa * (aa.transpose() * data.articulated_M[l_id] * aa).inverse();
-    data.aba_data[l_id].STMaSinv =
+    aa = data.jnt_axis[j_id];
+    aa_dot[l_id] = aa;
+    aa_dot[l_id].head(3) =
+        spatial::skew_matrix(data.jnt_avel[j_id]) * aa_dot[l_id].head(3);
+    aa_dot[l_id].tail(3) =
+        spatial::skew_matrix(data.jnt_avel[j_id]) * aa_dot[l_id].tail(3);
+    SMS_inv[l_id] =
         (aa.transpose() * data.articulated_M[l_id] * aa).inverse()(0, 0);
 
-    Eigen::Vector<double, 3> r, v;
     if (model.link_parentid[l_p_id] != UINT16_MAX) {
       r = -data.jnt_pos[j_id] + data.jnt_pos[model.link_parentid[l_p_id]];
     } else {
       r = -data.jnt_pos[j_id];
     }
+    // FIXME: maybe not true for floating joint
     v = aa.head<3>() * data.v[j_dof];
-    Eigen::Matrix<double, 6, 6> X_bp = spatial::get_dof_mapping_matrix(r);
+    X_bp[l_id] = spatial::get_dof_mapping_matrix(r);
 
-    data.aba_data[l_id].XT = X_bp.transpose();
-    Eigen::Matrix<double, 6, 6> X_bp_dot = Eigen::Matrix<double, 6, 6>::Zero();
-    X_bp_dot.block<3, 3>(3, 0) =
+    X_bp_dot[l_id] = Eigen::Matrix<double, 6, 6>::Zero();
+    X_bp_dot[l_id].block<3, 3>(3, 0) =
         spatial::skew_matrix(-data.link_avel[l_p_id].cross(r) + v);
 
     if (model.jnt_type[j_id] == structs::FIXED) {
       data.articulated_M[l_p_id] +=
-          X_bp * data.articulated_M[l_id] * X_bp.transpose();
+          X_bp[l_id] * data.articulated_M[l_id] * X_bp[l_id].transpose();
       data.articulated_b[l_p_id] +=
-          X_bp * (data.articulated_M[l_id] * X_bp_dot.transpose() * link_v +
-                  data.articulated_b[l_id]);
+          X_bp[l_id] *
+          (data.articulated_M[l_id] * X_bp_dot[l_id].transpose() * link_v +
+           data.articulated_b[l_id]);
     } else if (model.jnt_type[j_id] != structs::FREE) {
       data.articulated_M[l_p_id] +=
-          X_bp * data.articulated_M[l_id] *
-          (-S_SMS_inv *
-               (aa.transpose() * data.articulated_M[l_id] * X_bp.transpose()) +
-           X_bp.transpose());
+          X_bp[l_id] * data.articulated_M[l_id] *
+          (-aa * SMS_inv[l_id] *
+               (aa.transpose() * data.articulated_M[l_id] *
+                X_bp[l_id].transpose()) +
+           X_bp[l_id].transpose());
       data.articulated_b[l_p_id] +=
-          X_bp * (data.articulated_M[l_id] *
-                      (S_SMS_inv * (data.tau[j_dof] -
-                                    aa.transpose() * data.articulated_M[l_id] *
-                                        (aa_dot * data.v[j_dof] +
-                                         X_bp_dot.transpose() * link_v) -
-                                    aa.transpose() * data.articulated_b[l_id]) +
-                       aa_dot * data.v[j_dof] + X_bp_dot.transpose() * link_v) +
-                  data.articulated_b[l_id]);
-      data.aba_data[l_id].SdotUpXdotTV =
-          aa_dot * data.v[j_dof] + X_bp_dot.transpose() * link_v;
+          X_bp[l_id] * (data.articulated_M[l_id] *
+                            (aa * SMS_inv[l_id] *
+                                 (data.tau[j_dof] -
+                                  aa.transpose() * data.articulated_M[l_id] *
+                                      (aa_dot[l_id] * data.v[j_dof] +
+                                       X_bp_dot[l_id].transpose() * link_v) -
+                                  aa.transpose() * data.articulated_b[l_id]) +
+                             aa_dot[l_id] * data.v[j_dof] +
+                             X_bp_dot[l_id].transpose() * link_v) +
+                        data.articulated_b[l_id]);
     }
-  }
-  for (int16_t l_id = 0; l_id < model.nl; ++l_id) {
-    data.aba_data[l_id].Ma = data.articulated_M[l_id];
-    data.aba_data[l_id].Pa = data.articulated_b[l_id];
   }
 
   Eigen::VectorXd dv = Eigen::VectorXd::Zero(model.nv);
   std::vector<Eigen::Vector<double, 6>> link_acc(
       model.nl, Eigen::Vector<double, 6>::Zero());
   link_acc[0].head(3) = -data.gravity;
-  data.aba_data[0].acc = link_acc[0];
 
   for (int16_t l_id = 0; l_id < model.nl; ++l_id) {
-    uint16_t j_id = model.link_parentid[l_id];
+    j_id = model.link_parentid[l_id];
     if (j_id == UINT16_MAX) {
       // Base link, no parent joint
       continue;
     }
-    uint16_t l_p_id = model.jnt_parentid[j_id];
-    uint16_t j_dof = model.jnt_dofadr[j_id];
+    l_p_id = model.jnt_parentid[j_id];
+    j_dof = model.jnt_dofadr[j_id];
 
     Eigen::Vector<double, 6> link_v = Eigen::Vector<double, 6>::Zero();
     link_v.head(3) = data.link_lvel[l_p_id];
@@ -209,27 +209,8 @@ inline void articulatedBodyAlgorithmHwangbo(const dyn::structs::Model &model,
     jnt_v.head(3) = data.jnt_lvel[j_id];
     jnt_v.tail(3) = data.jnt_avel[j_id];
 
-    Eigen::Vector<double, 6> aa = data.jnt_axis[j_id];
+    aa = data.jnt_axis[j_id];
 
-    Eigen::Vector<double, 6> aa_dot = aa;
-    aa_dot.head(3) = spatial::skew_matrix(data.jnt_avel[j_id]) * aa_dot.head(3);
-    aa_dot.tail(3) = spatial::skew_matrix(data.jnt_avel[j_id]) * aa_dot.tail(3);
-
-    Eigen::Matrix<double, 1, 1> SMS_inv =
-        (aa.transpose() * data.articulated_M[l_id] * aa).inverse();
-
-    Eigen::Vector<double, 3> r, v;
-    if (model.link_parentid[l_p_id] != UINT16_MAX) {
-      r = -data.jnt_pos[j_id] + data.jnt_pos[model.link_parentid[l_p_id]];
-    } else {
-      r = -data.jnt_pos[j_id];
-    }
-    v = aa.head<3>() * data.v[j_dof];
-    Eigen::Matrix<double, 6, 6> X_bp = spatial::get_dof_mapping_matrix(r);
-
-    Eigen::Matrix<double, 6, 6> X_bp_dot = Eigen::Matrix<double, 6, 6>::Zero();
-    X_bp_dot.block<3, 3>(3, 0) =
-        spatial::skew_matrix(-data.link_avel[l_p_id].cross(r) + v);
     if (model.jnt_type[j_id] == structs::FIXED) {
       link_acc[l_id] = link_acc[l_p_id];
     } else if (model.jnt_type[j_id] == structs::FREE) {
@@ -238,26 +219,21 @@ inline void articulatedBodyAlgorithmHwangbo(const dyn::structs::Model &model,
           (data.tau.segment<6>(j_dof) - data.articulated_b[l_id]);
       dv.segment<3>(j_dof) += data.gravity;
 
-      link_acc[l_id] = dv.segment<6>(j_dof) + X_bp_dot.transpose() * link_v +
-                       X_bp.transpose() * link_acc[l_p_id];
+      link_acc[l_id] = dv.segment<6>(j_dof) +
+                       X_bp_dot[l_id].transpose() * link_v +
+                       X_bp[l_id].transpose() * link_acc[l_p_id];
     } else {
-      dv[j_dof] = (SMS_inv * (data.tau[j_dof] -
-                              aa.transpose() * data.articulated_M[l_id] *
-                                  (aa_dot * data.v[j_dof] +
-                                   X_bp_dot.transpose() * link_v +
-                                   X_bp.transpose() * link_acc[l_p_id]) -
-                              aa.transpose() * data.articulated_b[l_id]))(0, 0);
-      link_acc[l_id] = aa * dv[j_dof] + aa_dot * data.v[j_dof] +
-                       X_bp_dot.transpose() * link_v +
-                       X_bp.transpose() * link_acc[l_p_id];
-      data.aba_data[l_id].udotExpectAccTerm =
-          (SMS_inv *
-           (data.tau[j_dof] -
-            aa.transpose() * data.articulated_M[l_id] *
-                (aa_dot * data.v[j_dof] + X_bp_dot.transpose() * link_v) -
-            aa.transpose() * data.articulated_b[l_id]))(0, 0);
+      dv[j_dof] =
+          SMS_inv[l_id] * (data.tau[j_dof] -
+                           aa.transpose() * data.articulated_M[l_id] *
+                               (aa_dot[l_id] * data.v[j_dof] +
+                                X_bp_dot[l_id].transpose() * link_v +
+                                X_bp[l_id].transpose() * link_acc[l_p_id]) -
+                           aa.transpose() * data.articulated_b[l_id]);
+      link_acc[l_id] = aa * dv[j_dof] + aa_dot[l_id] * data.v[j_dof] +
+                       X_bp_dot[l_id].transpose() * link_v +
+                       X_bp[l_id].transpose() * link_acc[l_p_id];
     }
-    data.aba_data[l_id].acc = link_acc[l_id];
   }
 
   data.dv = dv;
