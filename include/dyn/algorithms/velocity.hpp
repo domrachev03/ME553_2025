@@ -53,8 +53,11 @@ inline void computeVelocity(const dyn::structs::Model &model,
     } else if (jnt_type == structs::REVOLUTE) {
       data.jnt_avel[jnt_id] += data.jnt_axis[jnt_id].tail(3) * data.v[dof_addr];
     } else if (jnt_type == structs::FREE) {
-      data.jnt_lvel[jnt_id] += data.v(Eigen::seqN(q_addr, 3));
-      data.jnt_avel[jnt_id] += data.v(Eigen::seqN(q_addr + 3, 3));
+      data.jnt_lvel[jnt_id] += data.v(Eigen::seqN(dof_addr, 3));
+      data.jnt_avel[jnt_id] += data.v(Eigen::seqN(dof_addr + 3, 3));
+    } else if (jnt_type == structs::BALL) {
+      data.jnt_avel[jnt_id] +=
+          data.jnt_rot[jnt_id] * data.v(Eigen::seqN(dof_addr, 3));
     }
   }
 }

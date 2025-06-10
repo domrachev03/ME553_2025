@@ -62,7 +62,12 @@ inline void computeForwardKinematics(const dyn::structs::Model &model,
 
       data.jnt_pos[jnt_id] += q_floating.head(3); // Update position
       data.jnt_rot[jnt_id] *= spatial::quat2rot(q_floating.tail(4));
+    } else if (jnt_type == structs::BALL) {
+      auto q_floating = data.q(Eigen::seqN(q_addr, 4));
+      data.jnt_axis[jnt_id].tail(3) =
+          data.jnt_rot[jnt_id] * model.jnt_axis_local[jnt_id].tail(3);
 
+      data.jnt_rot[jnt_id] *= spatial::quat2rot(q_floating);
     } else if (jnt_type != structs::FIXED) {
       // Print error that joint is unsupported
       std::cerr << "Joint type not supported: " << jnt_type << std::endl;

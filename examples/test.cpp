@@ -65,10 +65,19 @@ static Eigen::VectorXd randConfig(raisim::ArticulatedSystem *r,
     std::uniform_real_distribution<> d(-1.0, 1.0);
     q[i] = d(gen);
   }
-  if (r->gc_.size() != r->gv_.size()) {
-    // Normalize randomized quaternion to unit length
-    q.segment<4>(3) = q.segment<4>(3).normalized();
-  }
+  // if (r->gc_.size() != r->gv_.size()) {
+  //   // Normalize randomized quaternion to unit length
+  //   q.segment<4>(3) = q.segment<4>(3).normalized();
+  // }
+  // q << 0.0, 1.0, 0.0, 0.0,                    // Base position (x, y, z)
+  //     0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0; // Base orientation
+  //     (quaternion)
+  q.segment<4>(0) = q.segment<4>(0).normalized(); // Normalize quaternion
+  q.segment<4>(4) = q.segment<4>(4).normalized(); // Normalize quaternion
+  q.segment<4>(8) = q.segment<4>(8).normalized(); // Normalize quaternion
+
+  std::cout << q.segment(0, 4).norm() << " " << q.segment(4, 4).norm() << " "
+            << q.segment(8, 4).norm() << "\n";
   return q;
 }
 static Eigen::VectorXd randVelocity(raisim::ArticulatedSystem *r,
@@ -380,6 +389,8 @@ int main(int argc, char **argv) {
         h.rsys, std::chrono::system_clock::now().time_since_epoch().count());
     // v = Eigen::VectorXd::Zero(h.rsys->getDOF());
     // tau = Eigen::VectorXd::Zero(h.rsys->getDOF());
+    std::cout << q.size() << " " << v.size() << std::endl;
+
     h.rsys->setState(q, v);
     h.rsys->setGeneralizedForce(tau);
     h.server->focusOn(h.rsys);

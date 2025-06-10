@@ -79,6 +79,8 @@ computeAcceleration(const dyn::structs::Model &model,
                                      data.v[dof_addr];
     } else if (jnt_type == structs::FREE) {
       jnt_acc[jnt_id] += dv(Eigen::seqN(q_addr, 6));
+    } else if (jnt_type == structs::BALL) {
+      jnt_acc[jnt_id] += dv(Eigen::seqN(q_addr, 3));
     }
   }
 

@@ -14,14 +14,14 @@ inline void update(const dyn::structs::Model &model, dyn::structs::Data &data) {
   // Update the kinematics of the model based on the current state
   // This is a placeholder implementation
   kinematics::computeForwardKinematics(model, data);
-  kinematics::computeCompositeMassInertia(model, data);
-  kinematics::computeMassMatrix(model, data);
+  // kinematics::computeCompositeMassInertia(model, data);
+  // kinematics::computeMassMatrix(model, data);
 
   velocity::computeVelocity(model, data);
 
-  dynamics::computeSingleBodyNewtonEuler(model, data);
-  dynamics::computeBias(model, data);
-  dynamics::articulatedBodyAlgorithm(model, data);
+  // dynamics::computeSingleBodyNewtonEuler(model, data);
+  // dynamics::computeBias(model, data);
+  // dynamics::articulatedBodyAlgorithm(model, data);
 }
 } // namespace algorithms
 } // namespace dyn
