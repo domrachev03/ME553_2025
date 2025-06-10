@@ -30,6 +30,8 @@ inline JointType getJointType(const std::string &type) {
     return PRISMATIC;
   } else if (type == "free") {
     return FREE;
+  } else if (type == "spherical" || type == "ball") {
+    return BALL;
   } else {
     throw std::runtime_error("Unknown joint type: " + type);
   }
@@ -43,6 +45,8 @@ inline uint16_t getJointDof(JointType type) {
     return 1;
   case PRISMATIC:
     return 1;
+  case BALL:
+    return 3;
   case FREE:
     return 6;
   default:
@@ -57,6 +61,8 @@ inline uint16_t getJointQdof(JointType type) {
     return 1;
   case PRISMATIC:
     return 1;
+  case BALL:
+    return 4;
   case FREE:
     return 7;
   default:

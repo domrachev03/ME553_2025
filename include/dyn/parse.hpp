@@ -357,7 +357,7 @@ inline structs::Model parseURDF(const std::string &urdf,
           ++jnt_dof_index;
         }
       }
-      
+
       model.jnt_rel_pos[joint_index] =
           Eigen::Vector3d::Zero(); // Initialize to zero
       model.jnt_rel_rot[joint_index] = Eigen::Matrix3d::Identity();

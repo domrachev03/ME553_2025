@@ -32,6 +32,8 @@ static std::filesystem::path getURDFPath(const std::string &name) {
     return base / "cartPole" / "cartpole.urdf";
   else if (name == "manip3d")
     return base / "manip3d" / "robot_3D.urdf";
+  else if (name == "chain")
+    return base / "chain" / "robot.urdf";
   else
     throw std::runtime_error("Unknown robot: " + name);
 }
