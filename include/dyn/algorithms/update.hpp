@@ -2,7 +2,6 @@
 #define DYN_ALGORITHMS_UPDATE_HPP
 
 #include "../structs.hpp"
-#include "acceleration.hpp"
 #include "dynamics.hpp"
 #include "kinematics.hpp"
 #include "velocity.hpp"
@@ -20,7 +19,9 @@ inline void update(const dyn::structs::Model &model, dyn::structs::Data &data) {
 
   velocity::computeVelocity(model, data);
 
+  dynamics::computeSingleBodyNewtonEuler(model, data);
   dynamics::computeBias(model, data);
+  dynamics::articulatedBodyAlgorithm(model, data);
 }
 } // namespace algorithms
 } // namespace dyn

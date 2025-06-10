@@ -18,9 +18,10 @@ inline std::pair<std::vector<Eigen::Vector<double, 6>>,
 computeAcceleration(const dyn::structs::Model &model,
                     const dyn::structs::Data &data, const Eigen::VectorXd &dv) {
 
-  auto link_acc = std::vector<Eigen::Vector<double, 6>>(model.nl);
-
-  auto jnt_acc = std::vector<Eigen::Vector<double, 6>>(model.nj);
+  auto link_acc = std::vector<Eigen::Vector<double, 6>>(
+      model.nl, Eigen::Vector<double, 6>::Zero());
+  auto jnt_acc = std::vector<Eigen::Vector<double, 6>>(
+      model.nj, Eigen::Vector<double, 6>::Zero());
 
   link_acc[0] = Eigen::Vector<double, 6>::Zero();
   jnt_acc[0] = Eigen::Vector<double, 6>::Zero();

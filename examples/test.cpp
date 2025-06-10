@@ -1,5 +1,3 @@
-#include "dyn/utils.hpp"
-#include "raisim/RaisimServer.hpp"
 #include <cassert>
 #include <chrono>
 #include <dyn/algorithms/update.hpp>
@@ -7,6 +5,7 @@
 #include <dyn/structs.hpp>
 #include <filesystem>
 #include <iostream>
+#include <raisim/RaisimServer.hpp>
 #include <raisim/math.hpp>
 #include <random>
 #include <string>
@@ -31,6 +30,8 @@ static std::filesystem::path getURDFPath(const std::string &name) {
     return base / "kinova" / "robot.urdf";
   else if (name == "cartpole")
     return base / "cartPole" / "cartpole.urdf";
+  else if (name == "manip3d")
+    return base / "manip3d" / "robot_3D.urdf";
   else
     throw std::runtime_error("Unknown robot: " + name);
 }
@@ -77,6 +78,17 @@ static Eigen::VectorXd randVelocity(raisim::ArticulatedSystem *r,
   for (int i = 0; i < nv; ++i)
     v[i] = d(gen);
   return v;
+}
+
+static Eigen::VectorXd randTorque(raisim::ArticulatedSystem *r,
+                                  unsigned seed = 0) {
+  auto nv = r->getDOF();
+  Eigen::VectorXd tau(nv);
+  std::mt19937 gen(seed ? seed : std::random_device{}());
+  std::uniform_real_distribution<> d(-2, 2);
+  for (int i = 0; i < nv; ++i)
+    tau[i] = d(gen);
+  return tau;
 }
 
 // Test 1: forward kinematics
@@ -262,7 +274,7 @@ static void testJointAxes(ModelHandles &h) {
 // Test 6: mass matrix
 static void testMassMatrix(ModelHandles &h) {
   Eigen::MatrixXd M_dyn = h.ddata.M;
-  Eigen::MatrixXd M_rai = h.rsys->M_.e();
+  Eigen::MatrixXd M_rai = h.rsys->getMassMatrix().e();
   // Check elementwise and show difference:
   for (int i = 0; i < M_dyn.rows(); ++i) {
     for (int j = i; j < M_dyn.cols(); ++j) {
@@ -283,24 +295,14 @@ static void testAcceleration(ModelHandles &h) {
   std::vector<Eigen::Vector<double, 6>> jnt_acc =
       dyn::algorithms::acceleration::computeAcceleration(h.dmodel, h.ddata, dv)
           .second;
-  // for (uint16_t jnt_id = 1; jnt_id < h.dmodel.nj; ++jnt_id) {
-  //   std::string jnt_name = h.dmodel.jnt_name[jnt_id];
-  //   // ang_acc = h.ddata.jnt_aacc[jnt_id];
-  //   h.rsys->getFrameAcceleration(jnt_name, tipAcc);
-  //   // h.rsys->getFrameAngularAcceleration(jnt_name, tipAngAcc);
-  //   if (!((jnt_acc[jnt_id].head(3) - tipAcc.e()).norm() < 1e-8)) {
-  //     std::cerr << "Joint " << jnt_id
-  //               << " acceleration mismatch: " << jnt_acc[jnt_id].transpose()
-  //               << " vs" << tipAcc.e().transpose() << "\n";
-  //     throw std::runtime_error("Acceleration test failed");
-  //   }
-  // }
   for (size_t i = 0; i < h.rsys->nbody; ++i) {
     std::string jnt_name = h.dmodel.jnt_name[i];
-    h.rsys->getFrameAcceleration(jnt_name, tipAcc);
+    tipAcc = h.rsys->bodyLinearAcc[i].e();
+    tipAngAcc = h.rsys->bodyAngAcc[i].e();
     bool found = false;
     for (size_t j = 0; j < h.dmodel.nj; ++j) {
-      if ((jnt_acc[j].head(3) - tipAcc.e()).norm() < 1e-8) {
+      if ((jnt_acc[j].head(3) - tipAcc.e()).norm() < 1e-8 &&
+          (jnt_acc[j].tail(3) - tipAngAcc.e()).norm() < 1e-8) {
         std::cout << "[MATCH] Acc Raisim[" << i
                   << "]=" << tipAcc.e().transpose() << " == dyn[" << j
                   << "]=" << jnt_acc[j].head(3).transpose() << "\n";
@@ -319,10 +321,10 @@ static void testAcceleration(ModelHandles &h) {
 }
 
 // Test 8: bias
-static void testBias(ModelHandles &h) {
+static void testBias(ModelHandles &h, const double g) {
   const double tol = 1e-9;
   Eigen::VectorXd b_dyn = h.ddata.b;
-  auto b_rai = h.rsys->getNonlinearities({0, 0, -9.81}).e();
+  auto b_rai = h.rsys->getNonlinearities({0, 0, -g}).e();
   for (int i = 0; i < b_dyn.size(); ++i) {
     if (std::abs(b_dyn[i] - b_rai[i]) > tol) {
       std::cerr << "Bias mismatch at index " << i << ": " << b_dyn[i] << " vs "
@@ -332,12 +334,39 @@ static void testBias(ModelHandles &h) {
   // throw std::runtime_error("Bias test failed");
   std::cout << "[PASS] bias\n";
 }
+
+// Test 9: fwd dynamics
+static void testForwardDynamics(ModelHandles &h, const double g) {
+  const double tol = 1e-9; // Dyn mass matrix and bias
+  // Eigen::MatrixXd M_dyn = h.ddata.M;
+  // Eigen::VectorXd b_dyn = h.ddata.b;
+  // Raisim mass matrix and bias (nonlinearities)
+  Eigen::MatrixXd M_rai = h.rsys->getMassMatrix().e();
+  Eigen::VectorXd b_rai = h.rsys->getNonlinearities({0, 0, -g}).e();
+
+  // Eigen::VectorXd a_rai = M_rai.inverse() * (h.ddata.tau - b_rai);
+  Eigen::VectorXd a_rai = M_rai.inverse() * (h.ddata.tau - b_rai);
+
+  for (int i = 0; i < h.ddata.dv.size(); ++i) {
+    if (std::abs(h.ddata.dv[i] - a_rai[i]) > tol) {
+      std::cerr << "Forward dynamics mismatch at index " << i
+                << ": dyn=" << h.ddata.dv[i] << " vs rai=" << a_rai[i] << "\n";
+      // throw std::runtime_error("Forward dynamics test failed");
+    } else {
+      std::cout << "[MATCH] Forward dynamics at index " << i << ": "
+                << h.ddata.dv[i] << " == " << a_rai[i] << "\n";
+    }
+  }
+  std::cout << "[PASS] forward dynamics\n";
+}
+
 int main(int argc, char **argv) {
   if (argc < 2) {
     std::cerr << "Usage: " << argv[0] << " <panda|minicheetah>\n";
     return -1;
   }
   auto name = std::string(argv[1]);
+  double g = 9.81; // Gravity constant, can be adjusted
   try {
     auto h = loadModel(name);
     // for (int i = 0; i < 1000000; ++i) {
@@ -345,23 +374,28 @@ int main(int argc, char **argv) {
         h.rsys, std::chrono::system_clock::now().time_since_epoch().count());
     auto v = randVelocity(
         h.rsys, std::chrono::system_clock::now().time_since_epoch().count());
+    auto tau = randTorque(
+        h.rsys, std::chrono::system_clock::now().time_since_epoch().count());
     // v = Eigen::VectorXd::Zero(h.rsys->getDOF());
+    // tau = Eigen::VectorXd::Zero(h.rsys->getDOF());
     h.rsys->setState(q, v);
+    h.rsys->setGeneralizedForce(tau);
     h.server->focusOn(h.rsys);
     h.server->launchServer();
     h.rsys->updateKinematics();
     h.world->integrate1();
     auto M = h.rsys->getMassMatrix();
-    h.rsys->setComputeInverseDynamics(true);
-    h.rsys->getNonlinearities({0, 0, -9.81});
+    h.rsys->getNonlinearities({0, 0, -g});
 
     h.ddata.q = q;
     h.ddata.v = v;
-    h.ddata.gravity = Eigen::Vector3d(0, 0, -9.81);
+    h.ddata.tau = tau;
+    h.ddata.gravity = Eigen::Vector3d(0, 0, -g);
     std::cout << "Running update algorithms...\n";
     dyn::algorithms::update(h.dmodel, h.ddata);
     std::cout << "q: " << q.transpose() << "\n";
     std::cout << "v: " << v.transpose() << "\n";
+    std::cout << "tau: " << tau.transpose() << "\n";
     testKinematics(h);
     testVelocity(h);
     // testLinkKinematics(h);
@@ -369,7 +403,8 @@ int main(int argc, char **argv) {
     testJointAxes(h);
     testMassMatrix(h);
     testAcceleration(h);
-    testBias(h);
+    testBias(h, g);
+    testForwardDynamics(h, g);
   } catch (const std::exception &e) {
     std::cerr << "Error: " << e.what() << "\n";
     return -1;
